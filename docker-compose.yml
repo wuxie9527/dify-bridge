@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  dify-bridge:
+    build: .
+    container_name: dify-bridge
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///data/battery.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
