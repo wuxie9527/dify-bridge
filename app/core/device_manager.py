@@ -38,27 +38,26 @@ class DeviceManager:
     async def create_or_update_device(
         session: AsyncSession,
         device_id: str,
-        model: str = None,
-        device_name: str = None,
-        common_faults: list = None,
-        last_maintenance_date: str = None,
-        notes: str = None
+        **kwargs
     ) -> Dict[str, Any]:
-        """创建或更新设备"""
+        """创建或更新设备
+
+        使用字典传参，避免位置参数顺序问题。
+        支持的字段：model, device_name, common_faults, last_maintenance_date, notes
+        """
         data = {"device_id": device_id}
-        if device_name:
-            data["device_name"] = device_name
-        if model:
-            data["model"] = model
-        if common_faults:
-            data["common_faults"] = common_faults
-        if last_maintenance_date:
+
+        # 处理日期字段
+        if "last_maintenance_date" in kwargs and kwargs["last_maintenance_date"]:
             try:
-                data["last_maintenance_date"] = datetime.fromisoformat(last_maintenance_date)
-            except ValueError:
+                data["last_maintenance_date"] = datetime.fromisoformat(kwargs["last_maintenance_date"])
+            except (ValueError, TypeError):
                 pass
-        if notes:
-            data["notes"] = notes
+
+        # 复制其他字段
+        for key in ["model", "device_name", "common_faults", "notes"]:
+            if key in kwargs and kwargs[key] is not None:
+                data[key] = kwargs[key]
 
         device = await DeviceRepository.create_or_update(session, data)
 

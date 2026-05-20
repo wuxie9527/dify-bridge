@@ -81,14 +81,14 @@ async def update_device(
 
     Request Body:
     - model: 型号，如 IEVC-3.0
+    - device_name: 设备名称
     - common_faults: 常见故障 Top3 列表，如 ["E001", "E003"]
     - last_maintenance_date: 上次保养日期，ISO 8601 格式
     - notes: 特殊备注
     """
-    return await DeviceManager.create_or_update_device(
-        db, device_id, data.model, data.device_name,
-        data.common_faults, data.last_maintenance_date, data.notes
-    )
+    # 使用字典传参，避免位置参数顺序问题
+    update_data = {k: v for k, v in data.model_dump().items() if v is not None}
+    return await DeviceManager.create_or_update_device(db, device_id, **update_data)
 
 
 @router.post(
