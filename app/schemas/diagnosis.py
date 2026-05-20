@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class DeviceUpdateInput(BaseModel):
     """设备更新输入"""
     model: Optional[str] = Field(default=None, description="型号，如 IEVC-3.0")
+    device_name: Optional[str] = Field(default=None, description="设备名称")
     common_faults: Optional[list] = Field(default=None, description="常见故障 Top3")
     last_maintenance_date: Optional[str] = Field(default=None, description="上次保养日期")
     notes: Optional[str] = Field(default=None, description="备注")
@@ -17,6 +18,7 @@ class DeviceUpdateInput(BaseModel):
         json_schema_extra = {
             "example": {
                 "model": "IEVC-3.0",
+                "device_name": "1 号充电桩",
                 "common_faults": ["E001", "E003"],
                 "last_maintenance_date": "2024-01-15",
                 "notes": "需要定期更换冷却液"
