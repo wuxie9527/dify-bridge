@@ -86,8 +86,8 @@ async def update_device(
     - notes: 特殊备注
     """
     return await DeviceManager.create_or_update_device(
-        db, device_id, data.model, data.common_faults,data.device_name,
-        data.last_maintenance_date, data.notes
+        db, device_id, data.model, data.device_name,
+        data.common_faults, data.last_maintenance_date, data.notes
     )
 
 
