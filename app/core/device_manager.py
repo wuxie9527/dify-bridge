@@ -59,12 +59,12 @@ class DeviceManager:
             if key in kwargs and kwargs[key] is not None:
                 data[key] = kwargs[key]
 
-        device = await DeviceRepository.create_or_update(session, data)
+        device, is_new = await DeviceRepository.create_or_update(session, data)
 
         return {
             "status": "success",
             "device_id": device.device_id,
-            "created": device.created_at == device.updated_at
+            "created": is_new
         }
 
     @staticmethod

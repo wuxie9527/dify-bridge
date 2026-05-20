@@ -21,8 +21,11 @@ class DeviceRepository:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def create_or_update(session: AsyncSession, data: Dict[str, Any]) -> DeviceMemory:
-        """创建或更新设备信息"""
+    async def create_or_update(session: AsyncSession, data: Dict[str, Any]) -> tuple[DeviceMemory, bool]:
+        """创建或更新设备信息
+
+        返回：(设备对象，是否新建)
+        """
         device_id = data.get("device_id")
         existing = await DeviceRepository.get_by_device_id(session, device_id)
 
@@ -32,13 +35,13 @@ class DeviceRepository:
                 if hasattr(existing, key) and value is not None:
                     setattr(existing, key, value)
             existing.updated_at = datetime.now()
-            return existing
+            return existing, False
         else:
             # 创建
             device = DeviceMemory(**data)
             session.add(device)
             await session.flush()
-            return device
+            return device, True
 
     @staticmethod
     async def add_fault(session: AsyncSession, device_id: str, fault: str):
