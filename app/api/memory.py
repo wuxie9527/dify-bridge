@@ -53,8 +53,7 @@ async def create_memory(
     """
     memory = await MemoryRepository.create(session, data.model_dump())
     await session.commit()
-    await session.refresh(memory)
-    return memory
+    return MemoryResponse.model_validate(memory)
 
 
 @router.post(
