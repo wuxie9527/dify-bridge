@@ -23,11 +23,11 @@ router = APIRouter(prefix="/memory", tags=["长期记忆"])
 
 @router.post(
     "",
-    summary="创建诊断记忆",
-    description="在 Chatflow 诊断完成后调用，保存本次诊断记录到长期记忆库",
+    summary="创建或更新诊断记忆",
+    description="在 Chatflow 诊断完成后调用，保存本次诊断记录到长期记忆库。如果相同 fault_code 已存在则更新",
     responses={
         200: {
-            "description": "创建成功",
+            "description": "创建/更新成功",
             "example": {
                 "id": 1,
                 "device_id": "IEVC-3.0-001",
@@ -37,7 +37,8 @@ router = APIRouter(prefix="/memory", tags=["长期记忆"])
                 "solution": "检查充电模块保险丝",
                 "primary_cause": "保险丝熔断",
                 "hit_count": 0,
-                "created_at": "2026-05-21T12:00:00"
+                "created_at": "2026-05-21T12:00:00",
+                "is_new": true
             }
         }
     }
@@ -45,15 +46,18 @@ router = APIRouter(prefix="/memory", tags=["长期记忆"])
 async def create_memory(
     data: MemoryCreate,
     session: AsyncSession = Depends(get_db)
-) -> MemoryResponse:
+) -> Dict[str, Any]:
     """
-    创建诊断记忆
+    创建或更新诊断记忆
 
     在诊断流程完成后调用，将本次诊断结果保存到长期记忆库。
+    如果相同 error_code 已存在则更新，否则新增。
     """
-    memory = await MemoryRepository.create(session, data.model_dump())
+    memory, is_new = await MemoryRepository.create_or_update(session, data.model_dump())
     await session.commit()
-    return MemoryResponse.model_validate(memory)
+    response = MemoryResponse.model_validate(memory).model_dump()
+    response["is_new"] = is_new
+    return response
 
 
 @router.post(

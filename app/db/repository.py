@@ -13,13 +13,38 @@ class MemoryRepository:
     """长期记忆仓储"""
 
     @staticmethod
-    async def create(session: AsyncSession, data: Dict[str, Any]) -> DiagnosisMemory:
-        """创建记忆"""
+    async def create_or_update(session: AsyncSession, data: Dict[str, Any]) -> tuple[DiagnosisMemory, bool]:
+        """创建或更新记忆（根据 error_code 判断）
+
+        返回：(记忆对象，是否新建)
+        """
+        error_code = data.get("error_code")
+
+        # 如果有 error_code，先查找是否已存在
+        if error_code:
+            existing = await MemoryRepository.get_by_error_code(session, error_code)
+            if existing:
+                # 更新现有记录
+                for key, value in data.items():
+                    if value is not None and hasattr(existing, key):
+                        setattr(existing, key, value)
+                existing.updated_at = datetime.now()
+                return existing, False
+
+        # 新增记录
         memory = DiagnosisMemory(**data)
         session.add(memory)
         await session.flush()
         await session.refresh(memory)
-        return memory
+        return memory, True
+
+    @staticmethod
+    async def get_by_error_code(session: AsyncSession, error_code: str) -> Optional[DiagnosisMemory]:
+        """根据 error_code 获取记忆"""
+        result = await session.execute(
+            select(DiagnosisMemory).where(DiagnosisMemory.error_code == error_code)
+        )
+        return result.scalar_one_or_none()
 
     @staticmethod
     async def search(
