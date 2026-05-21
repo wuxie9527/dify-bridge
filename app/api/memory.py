@@ -119,27 +119,6 @@ async def search_memory(
     )
 
 
-@router.get(
-    "/{memory_id}",
-    summary="根据 ID 获取记忆",
-    description="获取单条诊断记忆详情",
-    response_model=MemoryResponse,
-    responses={
-        200: {"description": "获取成功"},
-        404: {"description": "记忆不存在"}
-    }
-)
-async def get_memory(
-    memory_id: int,
-    session: AsyncSession = Depends(get_db)
-) -> MemoryResponse:
-    """根据 ID 获取记忆"""
-    memory = await MemoryRepository.get_by_id(session, memory_id)
-    if not memory:
-        raise HTTPException(status_code=404, detail="记忆不存在")
-    return MemoryResponse.model_validate(memory)
-
-
 @router.delete(
     "/{memory_id}",
     summary="删除记忆",
