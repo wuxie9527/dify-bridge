@@ -16,20 +16,44 @@ echo ""
 echo "📥 正在拉取最新代码..."
 git pull origin main
 
-# 2. 停止旧服务
+# 2. 执行数据库迁移（如果存在新的迁移脚本）
+echo ""
+echo "📦 检查数据库迁移..."
+if [ -f "migrations/001_add_diagnosis_memory.sql" ]; then
+    # 检查表是否已存在
+    TABLE_EXISTS=$(sqlite3 data/dify-bridge.db ".tables" | grep -c "diagnosis_memory" || echo "0")
+    if [ "$TABLE_EXISTS" -eq 0 ]; then
+        echo "🔧 执行数据库迁移..."
+        sqlite3 data/dify-bridge.db < migrations/001_add_diagnosis_memory.sql
+        echo "✓ 数据库迁移完成"
+    else
+        echo "✓ 数据库已是最新"
+    fi
+fi
+
+# 3. 停止旧服务
 echo ""
 echo "🛑 正在停止旧服务..."
 pkill -f "uvicorn app.main:app" || true
 
-# 3. 启动新服务
+# 4. 启动新服务
 echo ""
 echo "🚀 正在启动新服务..."
-nohup python -m uvicorn app.main:app \
+nohup $PROJECT_DIR/venv/bin/python -m uvicorn app.main:app \
   --host 0.0.0.0 --port 8000 > logs/service.log 2>&1 &
 
-sleep 2
+sleep 3
 
-# 4. 查看状态
+# 5. 验证服务
+echo ""
+echo "🔍 验证服务..."
+if curl -s http://localhost:8000/health | grep -q "ok"; then
+    echo "✓ 服务启动成功"
+else
+    echo "⚠️  服务启动失败，请查看日志：tail -f logs/service.log"
+fi
+
+# 6. 查看状态
 echo ""
 echo "=========================================="
 echo "  更新完成！"
