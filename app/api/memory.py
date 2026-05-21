@@ -38,7 +38,7 @@ router = APIRouter(prefix="/memory", tags=["长期记忆"])
                 "primary_cause": "保险丝熔断",
                 "hit_count": 0,
                 "created_at": "2026-05-21T12:00:00",
-                "is_new": true
+                "is_new": True
             }
         }
     }
