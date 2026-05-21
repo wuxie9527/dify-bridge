@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     """应用配置"""
 
     # 数据库
-    database_url: str = "sqlite+aiosqlite:///data/battery.db"
+    database_url: str = "sqlite+aiosqlite:///data/dify-bridge.db"
 
     # 日志
     log_level: str = "INFO"

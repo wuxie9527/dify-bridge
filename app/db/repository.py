@@ -40,9 +40,12 @@ class MemoryRepository:
 
     @staticmethod
     async def get_by_error_code(session: AsyncSession, error_code: str) -> Optional[DiagnosisMemory]:
-        """根据 error_code 获取记忆"""
+        """根据 error_code 获取记忆（返回最新的一条）"""
         result = await session.execute(
-            select(DiagnosisMemory).where(DiagnosisMemory.error_code == error_code)
+            select(DiagnosisMemory)
+            .where(DiagnosisMemory.error_code == error_code)
+            .order_by(desc(DiagnosisMemory.updated_at))
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
