@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy import select, and_, or_, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import DeviceMemory, SolutionHistory
+from app.db.models import DeviceMemory, SolutionHistory, DiagnosisMemory
 
 
 class DeviceRepository:
@@ -106,3 +106,94 @@ class SolutionRepository:
         )
         result = await session.execute(query)
         return list(result.scalars().all())
+
+
+class MemoryRepository:
+    """长期记忆仓储"""
+
+    @staticmethod
+    async def create(session: AsyncSession, data: Dict[str, Any]) -> DiagnosisMemory:
+        """创建记忆"""
+        memory = DiagnosisMemory(**data)
+        session.add(memory)
+        await session.flush()
+        await session.refresh(memory)
+        return memory
+
+    @staticmethod
+    async def search(
+        session: AsyncSession,
+        query: str,
+        device_id: Optional[str] = None,
+        device_name: Optional[str] = None,
+        error_code: Optional[str] = None,
+        top_k: int = 5
+    ) -> List[DiagnosisMemory]:
+        """关键词检索记忆"""
+        conditions = []
+
+        # 关键词匹配（symptoms 字段）
+        if query:
+            conditions.append(
+                DiagnosisMemory.symptoms.like(f"%{query}%")
+            )
+
+        # 设备编号过滤
+        if device_id:
+            conditions.append(
+                DiagnosisMemory.device_id == device_id
+            )
+
+        # 设备名称过滤
+        if device_name:
+            conditions.append(
+                DiagnosisMemory.device_name.like(f"%{device_name}%")
+            )
+
+        # 故障码过滤
+        if error_code:
+            conditions.append(
+                DiagnosisMemory.error_code == error_code
+            )
+
+        # 构建查询
+        stmt = select(DiagnosisMemory).where(*conditions) if conditions else select(DiagnosisMemory)
+
+        # 排序：命中次数倒序 + 时间倒序
+        stmt = stmt.order_by(
+            desc(DiagnosisMemory.hit_count),
+            desc(DiagnosisMemory.created_at)
+        )
+
+        # 限制数量
+        stmt = stmt.limit(top_k)
+
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_by_id(session: AsyncSession, memory_id: int) -> Optional[DiagnosisMemory]:
+        """根据 ID 获取记忆"""
+        result = await session.execute(
+            select(DiagnosisMemory).where(DiagnosisMemory.id == memory_id)
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def delete(session: AsyncSession, memory_id: int) -> bool:
+        """删除记忆"""
+        from sqlalchemy import delete
+        stmt = delete(DiagnosisMemory).where(DiagnosisMemory.id == memory_id)
+        result = await session.execute(stmt)
+        return result.rowcount > 0
+
+    @staticmethod
+    async def increment_hit_count(session: AsyncSession, memory_id: int):
+        """增加命中次数"""
+        from sqlalchemy import update
+        stmt = (
+            update(DiagnosisMemory)
+            .where(DiagnosisMemory.id == memory_id)
+            .values(hit_count=DiagnosisMemory.hit_count + 1)
+        )
+        await session.execute(stmt)

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db.database import init_db
-from app.api import dify_tools
+from app.api import dify_tools_router, memory_router
 
 # 配置日志
 logging.basicConfig(
@@ -46,7 +46,8 @@ app.add_middleware(
 )
 
 # 注册路由
-app.include_router(dify_tools.router, prefix="/api/v1/dify", tags=["Dify Tools"])
+app.include_router(dify_tools_router, prefix="/api/v1/dify", tags=["Dify Tools"])
+app.include_router(memory_router, prefix="/api/v1/dify", tags=["长期记忆"])
 
 
 @app.get("/", tags=["健康检查"])
