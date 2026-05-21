@@ -156,8 +156,12 @@ class MemoryRepository:
                 DiagnosisMemory.error_code == error_code
             )
 
+        # 如果没有任何条件，返回空列表（避免返回全表数据）
+        if not conditions:
+            return []
+
         # 构建查询
-        stmt = select(DiagnosisMemory).where(*conditions) if conditions else select(DiagnosisMemory)
+        stmt = select(DiagnosisMemory).where(*conditions)
 
         # 排序：命中次数倒序 + 时间倒序
         stmt = stmt.order_by(
