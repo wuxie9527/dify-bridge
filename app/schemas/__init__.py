@@ -2,11 +2,15 @@
 Schema 模块 - Pydantic 数据模型
 """
 from app.schemas.diagnosis import (
-    SimilarCaseQuery,
-    SolutionRecord,
+    MemoryCreate,
+    MemorySearchRequest,
+    MemoryResponse,
+    MemorySearchResponse,
 )
 
 __all__ = [
-    "SimilarCaseQuery",
-    "SolutionRecord",
+    "MemoryCreate",
+    "MemorySearchRequest",
+    "MemoryResponse",
+    "MemorySearchResponse",
 ]
