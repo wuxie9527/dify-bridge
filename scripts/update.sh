@@ -19,17 +19,25 @@ git pull origin main
 # 2. 执行数据库迁移（如果存在新的迁移脚本）
 echo ""
 echo "📦 检查数据库迁移..."
-if [ -f "migrations/001_add_diagnosis_memory.sql" ]; then
-    # 检查表是否已存在
-    TABLE_EXISTS=$(sqlite3 data/dify-bridge.db ".tables" | grep -c "diagnosis_memory" || echo "0")
-    if [ "$TABLE_EXISTS" -eq 0 ]; then
-        echo "🔧 执行数据库迁移..."
-        sqlite3 data/dify-bridge.db < migrations/001_add_diagnosis_memory.sql
-        echo "✓ 数据库迁移完成"
-    else
-        echo "✓ 数据库已是最新"
+
+# 创建迁移记录表（如果不存在）
+sqlite3 data/dify-bridge.db "CREATE TABLE IF NOT EXISTS _migrations (id INTEGER PRIMARY KEY, filename TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+
+# 检查并执行未执行的迁移脚本
+for sql_file in migrations/*.sql; do
+    if [ -f "$sql_file" ]; then
+        filename=$(basename "$sql_file")
+        APPLIED=$(sqlite3 data/dify-bridge.db "SELECT COUNT(*) FROM _migrations WHERE filename='$filename';")
+        if [ "$APPLIED" -eq 0 ]; then
+            echo "🔧 执行迁移：$filename"
+            sqlite3 data/dify-bridge.db < "$sql_file"
+            sqlite3 data/dify-bridge.db "INSERT INTO _migrations (filename) VALUES ('$filename');"
+            echo "✓ $filename 执行完成"
+        else
+            echo "⏭️  已跳过：$filename (已执行)"
+        fi
     fi
-fi
+done
 
 # 3. 停止旧服务
 echo ""
