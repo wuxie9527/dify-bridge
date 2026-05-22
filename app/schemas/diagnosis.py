@@ -34,7 +34,7 @@ class MemoryCreate(BaseModel):
 
 class MemorySearchRequest(BaseModel):
     """检索请求"""
-    query: str = Field(..., description="搜索关键词")
+    query: Optional[str] = Field(default=None, description="搜索关键词")
     device_id: Optional[str] = Field(default=None, description="设备编号过滤")
     device_name: Optional[str] = Field(default=None, description="设备名称过滤")
     error_code: Optional[str] = Field(default=None, description="故障码过滤")
