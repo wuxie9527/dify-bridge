@@ -58,7 +58,9 @@ class MemoryRepository:
         error_code: Optional[str] = None,
         top_k: int = 5
     ) -> List[DiagnosisMemory]:
-        """关键词检索记忆"""
+        """关键词检索记忆（OR 匹配）"""
+        from sqlalchemy import or_
+
         conditions = []
 
         # 关键词匹配（symptoms 字段）
@@ -85,24 +87,12 @@ class MemoryRepository:
                 DiagnosisMemory.error_code == error_code
             )
 
-        # 如果没有任何条件，返回空列表（避免返回全表数据）
+        # 如果没有任何条件，返回空列表
         if not conditions:
             return []
 
-        # 构建查询
-        stmt = select(DiagnosisMemory).where(*conditions)
-
-        # 排序：命中次数倒序 + 时间倒序
-        stmt = stmt.order_by(
-            desc(DiagnosisMemory.hit_count),
-            desc(DiagnosisMemory.created_at)
-        )
-
-        # 限制数量
-        stmt = stmt.limit(top_k)
-
-        result = await session.execute(stmt)
-        return list(result.scalars().all())
+        # 构建查询（OR 关系）
+        stmt = select(DiagnosisMemory).where(or_(*conditions))
 
     @staticmethod
     async def get_by_id(session: AsyncSession, memory_id: int) -> Optional[DiagnosisMemory]:
