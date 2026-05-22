@@ -109,9 +109,10 @@ async def search_memory(
     )
 
     # 增加前 3 个结果的命中次数（异步，不阻塞响应）
-    for memory in results[:3]:
-        await MemoryRepository.increment_hit_count(session, memory.id)
-    await session.commit()
+    if results:
+        for memory in results[:3]:
+            await MemoryRepository.increment_hit_count(session, memory.id)
+        await session.commit()
 
     return MemorySearchResponse(
         cases=[MemoryResponse.model_validate(m) for m in results],

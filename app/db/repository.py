@@ -94,6 +94,18 @@ class MemoryRepository:
         # 构建查询（OR 关系）
         stmt = select(DiagnosisMemory).where(or_(*conditions))
 
+        # 排序：命中次数倒序 + 时间倒序
+        stmt = stmt.order_by(
+            desc(DiagnosisMemory.hit_count),
+            desc(DiagnosisMemory.created_at)
+        )
+
+        # 限制数量
+        stmt = stmt.limit(top_k)
+
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
     @staticmethod
     async def get_by_id(session: AsyncSession, memory_id: int) -> Optional[DiagnosisMemory]:
         """根据 ID 获取记忆"""
