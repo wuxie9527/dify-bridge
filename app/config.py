@@ -18,9 +18,15 @@ class Settings(BaseSettings):
     app_name: str = "Dify Bridge"
     app_version: str = "1.0.0"
 
+    # 阿里云 OCR (新版 SDK)
+    alibaba_cloud_access_key_id: str = ""
+    alibaba_cloud_access_key_secret: str = ""
+    aliyun_ocr_endpoint: str = "ocr-api.cn-hangzhou.aliyuncs.com"
+
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"
 
 
 @lru_cache()

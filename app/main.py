@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db.database import init_db
 from app.api import memory_router
+from app.api.ocr_router import router as ocr_router
+from app.clients.aliyun_ocr import init_ocr_client
 
 # 配置日志
 logging.basicConfig(
@@ -25,6 +27,19 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Dify Bridge service...")
     await init_db()
     logger.info("Database initialized")
+
+    # 初始化 OCR 客户端
+    settings = get_settings()
+    if settings.alibaba_cloud_access_key_id and settings.alibaba_cloud_access_key_secret:
+        init_ocr_client(
+            access_key_id=settings.alibaba_cloud_access_key_id,
+            access_key_secret=settings.alibaba_cloud_access_key_secret,
+            endpoint=settings.aliyun_ocr_endpoint
+        )
+        logger.info(f"Aliyun OCR client initialized: endpoint={settings.aliyun_ocr_endpoint}")
+    else:
+        logger.warning("Aliyun OCR credentials not configured, OCR features will be unavailable")
+
     yield
     logger.info("Service shutting down...")
 
@@ -47,6 +62,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(memory_router, prefix="/api/v1/dify", tags=["长期记忆"])
+app.include_router(ocr_router, tags=["OCR 识别"])
 
 
 @app.get("/", tags=["健康检查"])

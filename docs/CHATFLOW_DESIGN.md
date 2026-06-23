@@ -55,29 +55,95 @@
 
 ### 2.2 变量初始化（Chatflow 开始）
 
-**节点类型**: 代码执行
+**前置配置**: 在 Dify Chatflow 页面预先配置会话变量：
+- `round_count` (Number)
+- `ticket_created` (Boolean)
+- `is_resolved` (Boolean)
+- `device_id`, `device_name`, `error_code`, `symptoms` (String)
+- `search_query`, `memory_results`, `kb_results`, `diagnosis_output` (String/Array)
 
-**代码**:
+**触发时机**: 
+- 仅在**新对话的第一轮**执行完整初始化
+- 后续轮次只重置临时变量
+
+**判断新对话的方法**:
+
+Dify 中，新对话开始时所有会话变量默认为**空值**。通过条件分支判断：
+
+```yaml
+# 方法 1：条件分支判断
+条件 1 (新对话):
+  {{#conversationVariables.round_count#}} == null OR 
+  {{#conversationVariables.round_count#}} == ""
+
+条件 2 (后续轮):
+  {{#conversationVariables.round_count#}} != null AND 
+  {{#conversationVariables.round_count#}} != ""
+```
+
+**Chatflow 节点配置**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  用户输入                                                │
+└─────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  节点 A: 代码节点（判断是否新对话）                       │
+│  输入：existing_round_count = {{#conversationVariables.round_count#}}
+│  输出：is_new_conversation (true/false)                 │
+└─────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  节点 B: 条件分支                                         │
+│  - is_new_conversation == true → 节点 C: 变量赋值        │
+│  - is_new_conversation == false → 跳过初始化，继续主流程 │
+└─────────────────────────────────────────────────────────┘
+```
+
+**代码节点（节点 A）**:
 ```python
-def main(conversation_id: str) -> dict:
+def main(existing_round_count) -> dict:
     """
-    新对话开始时重置变量
-    conversation_id: Dify 会话 ID
+    判断是否新对话
+    
+    Dify 中，空会话变量传过来是 None 或空字符串
     """
-    import json
-    from datetime import datetime
+    is_new = existing_round_count is None or existing_round_count == ""
     
     return {
-        "round_count": 0,
-        "ticket_created": False,
-        "is_resolved": False,
-        "search_query": "",
-        "memory_results": [],
-        "kb_results": [],
-        "diagnosis_output": "",
-        "conversation_started_at": datetime.now().isoformat()
+        "is_new_conversation": is_new
     }
 ```
+
+**变量赋值节点（节点 C）**:
+
+在 Dify 的变量赋值节点配置以下操作：
+
+| 变量名 | 赋值 | 说明 |
+|--------|------|------|
+| `conversationVariables.round_count` | 0 | 重置轮次计数 |
+| `conversationVariables.ticket_created` | False | 重置工单标志 |
+| `conversationVariables.is_resolved` | False | 重置解决状态 |
+| `conversationVariables.search_query` | "" | 重置临时变量 |
+| `conversationVariables.memory_results` | [] | 重置临时变量 |
+| `conversationVariables.kb_results` | [] | 重置临时变量 |
+| `conversationVariables.diagnosis_output` | "" | 重置临时变量 |
+
+**变量生命周期说明**:
+
+| 变量 | 新对话初始化 | 每轮重置 | 问题解决后 | 工单创建后 |
+|------|------------|---------|-----------|-----------|
+| `device_id` | 清空 | 保留 | 保留 | 保留 |
+| `error_code` | 清空 | 保留 | 保留 | 保留 |
+| `symptoms` | 清空 | 保留 | 保留 | 保留 |
+| `round_count` | 0 | 保留 | 0 | 保留 |
+| `ticket_created` | False | 保留 | False | True |
+| `is_resolved` | False | False | True | False |
+| `search_query` | "" | "" | - | - |
+| `memory_results` | [] | [] | - | - |
 
 ---
 
@@ -589,10 +655,10 @@ Body:
     user_feedback: "resolved"
 ```
 
-**后置处理**（日志记录）:
+**后置处理**（日志记录 + 变量重置）:
 ```python
 def main(response: dict, conversation_id: str) -> dict:
-    """记录记忆保存日志"""
+    """记录记忆保存日志，重置 counters"""
     is_new = response.body.get("is_new", False)
     
     # 发送到日志系统
@@ -610,9 +676,16 @@ def main(response: dict, conversation_id: str) -> dict:
     return {
         "saved": True,
         "is_new": is_new,
-        "memory_id": response.body.get("id")
+        "memory_id": response.body.get("id"),
+        # 重置计数器（问题已解决）
+        "reset_round_count": 0,
+        "reset_ticket_created": False
     }
 ```
+
+**变量重置说明**:
+- 用户反馈"已解决"后，重置 `round_count = 0` 和 `ticket_created = False`
+- 这样同一对话中再次提问时，计数器从头开始
 
 ---
 
@@ -685,7 +758,14 @@ conversationVariables.ticket_created = true
 
 # 回复用户
 "工单已创建（工单号：{{#ticket_create.response.ticket_id#}}）"
+
+# 注意：round_count 保持不变，不重置
+# 因为工单创建后，对话可能还在继续（用户补充信息等）
 ```
+
+**幂等性保护**:
+- `ticket_created = true` 后，即使用户继续追问，也不会重复创建工单
+- 如用户需要新的工单，必须开启新对话
 
 ---
 
@@ -880,6 +960,13 @@ location /api/v1/dify/ {
 用户输入
    │
    ▼
+┌─────────────────────────────────────────┐
+│ 0. 变量初始化（条件判断）                 │
+│ - 新对话？→ 初始化所有变量               │
+│ - 后续轮？→ 只重置临时变量               │
+└─────────────────────────────────────────┘
+   │
+   ▼
 ┌─────────────────┐
 │ 1. 意图识别 + 抽取 │
 └─────────────────┘
@@ -909,6 +996,7 @@ location /api/v1/dify/ {
                                   ▼
                     ┌─────────────────────────┐
                     │ 6. 会话变量更新          │
+                    │ - round_count += 1      │
                     └─────────────────────────┘
                                   │
                                   ▼
@@ -928,7 +1016,14 @@ location /api/v1/dify/ {
               ▼                   ▼
     ┌─────────────────┐   ┌─────────────────┐
     │ 9. 保存长期记忆  │   │ 检查 round_count │
-    └─────────────────┘   └─────────────────┘
+    │ + 重置计数器     │   └─────────────────┘
+    │ round_count=0   │           │
+    │ ticket_created  │           │
+    └─────────────────┘           │
+                                  ▼
+                        ┌─────────────────┐
+                        │ round_count >= 3 │
+                        └─────────────────┘
                                   │
                           ┌───────┴───────┐
                           │               │
@@ -948,10 +1043,25 @@ location /api/v1/dify/ {
                           │     │                   │
                           │     └─────────┬─────────┘
                           │               │
+                          │     ┌─────────────────┐
+                          │     │ 设置 ticket_created│
+                          │     │ = true          │
+                          │     └─────────────────┘
+                          │               │
                           └───────────────┘
                                   │
                                   ▼
                           回复用户
+```
+
+**变量重置时机说明**:
+
+| 时机 | round_count | ticket_created | 说明 |
+|------|-------------|----------------|------|
+| 新对话开始 | 0 | False | 完整初始化 |
+| 每轮检索前 | 保留 | 保留 | 只重置临时变量 |
+| 问题解决后 | 0 | False | 保存记忆后重置 |
+| 工单创建后 | 保留 | True | 防止重复工单 |
 ```
 
 ### 8.3 变更历史
@@ -959,3 +1069,654 @@ location /api/v1/dify/ {
 | 版本 | 日期 | 变更内容 | 作者 |
 |------|------|---------|------|
 | v1.0 | 2026-05-22 | 初始版本 | - |
+| v1.1 | 2026-05-22 | 修正会话变量初始化逻辑：<br>- 区分新对话/后续轮的变量重置 <br>- 添加 round_count 和 ticket_created 生命周期说明 <br>- 更新流程图和节点 9/11 的后置处理 | - |
+| v1.2 | 2026-05-23 | 添加人工介入节点配置、LLM 记忆窗口说明、会话变量状态管理规则 | - |
+
+---
+
+## 九、会话变量状态管理
+
+### 9.1 变量更新时机总表
+
+| 变量 | 何时更新 | 何时重置 | 更新方式 |
+|------|---------|---------|---------|
+| `round_count` | 每轮诊断前 +1 | 已解决后=0；新故障码=1 | 变量赋值节点 |
+| `device_id` | 用户输入中出现新设备 ID | 新对话开始时清空 | 条件更新 |
+| `error_code` | 用户输入中出现新故障码 | 新故障码时替换 | 条件更新 |
+| `symptoms` | 用户补充症状描述 | 新对话时清空；追加式更新 | 条件更新 |
+| `ticket_created` | 创建工单后=true | 已解决后=false | 变量赋值 |
+| `awaiting_feedback` | LLM 输出后=true | 用户反馈后=false | 变量赋值 |
+
+### 9.2 状态机流转图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    会话变量状态机                                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  【状态 1】新对话开始                                            │
+│  → 初始化所有变量为 null/0                                      │
+│                                                                 │
+│  【状态 2】信息抽取完成                                          │
+│  → 更新 device_id, error_code, symptoms（从 LLM 抽取）           │
+│                                                                 │
+│  【状态 3】诊断输出后                                            │
+│  → round_count += 1                                             │
+│                                                                 │
+│  【状态 4】用户反馈后                                            │
+│  ├─ 已解决 → 重置 round_count=0，清空临时变量                   │
+│  ├─ 未解决 + 有新故障码 → 更新 error_code，round_count=1        │
+│  └─ 未解决 + 无新信息 → round_count += 1，继续追问               │
+│                                                                 │
+│  【状态 5】新对话（用户开启全新对话）                              │
+│  → 检测 conversationVariables 全空 → 重新初始化                 │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 9.3 round_count 重置规则
+
+| 触发条件 | round_count 新值 | 说明 |
+|---------|-----------------|------|
+| 新对话开始 | 0 | 所有变量初始化 |
+| 用户反馈"已解决" | 0 | 问题闭环，保存记忆后重置 |
+| 检测到新故障码 | 1 | 新故障码=新问题，从第 1 轮开始 |
+| 用户明确开启新话题 | 0 | 如"换个问题"、"新设备有问题" |
+| 每轮诊断前 | +1 | 正常累加 |
+| 未解决且无新信息 | +1 | 继续累加，达到 3 后创建工单 |
+
+### 9.4 error_code 更新规则
+
+| 触发条件 | 操作 | 说明 |
+|---------|------|------|
+| 用户输入中出现新故障码 | 替换旧 error_code | 视为新问题 |
+| 检索结果中有更匹配的故障码 | 可选：询问用户后更新 | 谨慎处理 |
+| 用户反馈"未解决"但无新故障码 | 保留原 error_code | 继续追问 |
+
+### 9.5 关键代码节点实现
+
+#### 节点 0：检测是否新对话/新话题
+
+```python
+def main(current_query: str, 
+         existing_device_id, 
+         existing_error_code,
+         existing_round_count) -> dict:
+    """
+    检测是否需要重置会话状态
+    """
+    import re
+    
+    # 1. 检测是否新对话（轮次为空说明是第一次）
+    if existing_round_count is None or existing_round_count == "":
+        return {
+            "is_new_conversation": True,
+            "has_new_error_code": False,
+            "should_reset_round": True
+        }
+    
+    # 2. 检测是否开启新话题的关键词
+    new_topic_keywords = [
+        "换个问题", "新设备", "另一个", "还有", 
+        "再问", "新问题", "其他问题"
+    ]
+    
+    for keyword in new_topic_keywords:
+        if keyword in current_query:
+            return {
+                "is_new_conversation": False,
+                "has_new_error_code": False,
+                "should_reset_round": True  # 用户主动开启新话题
+            }
+    
+    # 3. 检测是否有新故障码
+    error_code_pattern = r'[Ee]\d{3}'  # 匹配 E001, e002 等
+    current_codes = re.findall(error_code_pattern, current_query)
+    
+    if current_codes and existing_error_code:
+        if current_codes[0].upper() != existing_error_code.upper():
+            return {
+                "is_new_conversation": False,
+                "has_new_error_code": True,
+                "should_reset_round": True,  # 新故障码=新问题，重置轮次
+                "new_error_code": current_codes[0].upper()
+            }
+    
+    # 4. 默认：继续上轮对话
+    return {
+        "is_new_conversation": False,
+        "has_new_error_code": False,
+        "should_reset_round": False
+    }
+```
+
+#### 节点 9.2：未解决时检查用户输入
+
+```python
+def main(user_input: str, 
+         current_error_code,
+         current_round: int) -> dict:
+    """
+    用户反馈"未解决"后，分析是否有新信息
+    """
+    import re
+    
+    # 1. 检测是否有新故障码
+    error_code_pattern = r'[Ee]\d{3}'
+    codes = re.findall(error_code_pattern, user_input)
+    
+    if codes:
+        new_code = codes[0].upper()
+        if new_code != current_error_code.upper():
+            # 有新故障码，视为新问题
+            return {
+                "action": "update_error_code",
+                "new_error_code": new_code,
+                "reset_round_to": 1,
+                "continue_diagnosis": True
+            }
+    
+    # 2. 检测是否有新症状描述（关键词）
+    symptom_keywords = ["还出现", "又有", "新增了", "还有"]
+    for keyword in symptom_keywords:
+        if keyword in user_input:
+            # 有新症状，需要更新 symptoms，轮次 +1
+            return {
+                "action": "update_symptoms",
+                "new_error_code": current_error_code,
+                "reset_round_to": current_round + 1,
+                "continue_diagnosis": True
+            }
+    
+    # 3. 无新信息，检查是否达到最大轮次
+    if current_round >= 3:
+        return {
+            "action": "create_ticket",
+            "new_error_code": current_error_code,
+            "reset_round_to": current_round,
+            "continue_diagnosis": False
+        }
+    else:
+        return {
+            "action": "ask_for_more",
+            "new_error_code": current_error_code,
+            "reset_round_to": current_round + 1,
+            "continue_diagnosis": True
+        }
+```
+
+### 9.6 测试场景验证
+
+| 场景 | 用户操作 | round_count | error_code | 预期行为 |
+|-----|---------|-------------|------------|---------|
+| 1 | 第一轮：「E001 怎么处理」 | 1 | E001 | 正常诊断 |
+| 2 | 反馈：未解决 | 2 | E001 | 继续追问 |
+| 3 | 反馈：未解决 | 3 | E001 | 创建工单 |
+| 4 | 反馈：已解决 | 0 | E001 | 保存记忆，重置 |
+| 5 | 新提问：「E002 呢」 | 1 | E002 | 新故障码，重置轮次 |
+| 6 | 新对话（新窗口） | 0 | null | 初始化所有变量 |
+
+---
+
+## 十、人工介入节点配置
+
+### 10.1 节点作用
+
+在 LLM 输出诊断方案后，通过人工介入节点让用户确认问题是否解决，根据反馈结果决定是否执行"保存长期记忆 + 重置计数器"流程。
+
+### 10.2 完整配置
+
+```yaml
+═══════════════════════════════════════════════════════════
+人工介入节点配置
+═══════════════════════════════════════════════════════════
+
+【表单内容】
+┌─────────────────────────────────────────────────────────┐
+│ 字段配置：                                               │
+│                                                         │
+│ 1. feedback_action (单选)                                │
+│    标题：问题是否解决？                                   │
+│    选项：                                                 │
+│      ○ 👍 已解决                                        │
+│      ○ 👎 未解决，需要进一步帮助                         │
+│    必填：是                                              │
+│                                                         │
+│ 2. feedback_note (多行文本)                              │
+│    标题：补充说明（选填）                                 │
+│    说明：如果未解决，请描述具体问题                       │
+│    占位符：例如：按照方案操作后仍然...                    │
+│    必填：否                                              │
+└─────────────────────────────────────────────────────────┘
+
+【用户操作】
+┌─────────────────────────────────────────────────────────┐
+│ 提交按钮文本：提交反馈                                   │
+│ 取消按钮：显示                                           │
+│ 取消后继续：是                                           │
+└─────────────────────────────────────────────────────────┘
+
+【提交方式】
+┌─────────────────────────────────────────────────────────┐
+│ 提交方式：表单提交                                       │
+└─────────────────────────────────────────────────────────┘
+
+【超时限制】
+┌─────────────────────────────────────────────────────────┐
+│ 超时时间：3600 秒 (1 小时)                                │
+│ 超时后自动提交：是                                       │
+│ 超时默认值：unresolved                                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 10.3 输出值获取
+
+```yaml
+# 获取用户选择的反馈结果
+{{#human_feedback.feedback_action#}}  →  值为 "resolved" 或 "unresolved"
+
+# 获取用户填写的备注说明
+{{#human_feedback.feedback_note#}}  →  用户输入的文本
+```
+
+### 10.4 后续分支配置
+
+**分支 1：已解决（resolved）**
+```yaml
+分支名称：已解决 - 保存记忆
+条件：{{#human_feedback.feedback_action#}} == "resolved"
+
+后续节点：
+  → HTTP 请求 (保存长期记忆 POST /api/v1/dify/memory)
+  → 变量赋值 (重置计数器：round_count=0, ticket_created=false)
+  → 直接回复 ("太好了！已为您记录该解决方案到知识库")
+```
+
+**分支 2：未解决（unresolved）**
+```yaml
+分支名称：未解决 - 继续处理
+条件：{{#human_feedback.feedback_action#}} == "unresolved"
+
+后续节点：
+  → 条件分支 (检查 round_count)
+  → ≥3 → 创建工单
+  → <3 → 澄清追问
+```
+
+### 10.5 节点流程图
+
+```
+┌─────────────────────────────────────────┐
+│  节点 7: LLM 诊断生成                      │
+│  末尾输出："请点击下方按钮反馈"           │
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│  节点 7.1: 变量赋值                       │
+│  temp_solution = {{#diagnosis.text#}}    │
+│  temp_device_id = {{#conversationVariables.device_id#}}
+│  temp_error_code = {{#conversationVariables.error_code#}}
+└─────────────────────────────────────────┘
+                    │
+                    ▼
+┌─────────────────────────────────────────┐
+│  节点 8: 人工介入节点 ⭐                   │
+│  【表单】问题是否解决？                   │
+│  【选项】👍 已解决 / 👎 未解决            │
+│  【超时】3600 秒 → 默认 unresolved        │
+└─────────────────────────────────────────┘
+                    │
+    ┌───────────────┴───────────────┐
+    │                               │
+    ▼                               ▼
+resolved                       unresolved
+    │                               │
+    ▼                               ▼
+┌───────────────┐           ┌───────────────┐
+│ 保存长期记忆   │           │ 检查 round_count│
+│ 重置计数器     │           │ ≥3 → 创建工单  │
+└───────────────┘           └───────────────┘
+```
+
+---
+
+## 十一、LLM 记忆窗口配置
+
+### 11.1 问题描述
+
+开启 LLM 记忆窗口后，Dify 会自动把历史对话记录作为上下文传给模型，导致：
+- 第二轮提问时，模型会看到第一轮的用户输入 + AI 回复
+- 意图识别被污染，混淆两轮对话的实体信息
+- 会话变量冗余，造成干扰
+
+### 11.2 推荐配置
+
+**对于换电运维场景（任务型对话），推荐关闭 LLM 记忆窗口：**
+
+```yaml
+┌─────────────────────────────────────────────────────────┐
+│  LLM 节点配置                                            │
+├─────────────────────────────────────────────────────────┤
+│  记忆窗口：关闭 (或设置为 0)                              │
+│  角色设定：开启                                          │
+│                                                         │
+│  上下文来源：                                            │
+│  - conversationVariables (设备信息、轮次计数)             │
+│  - merge_results (检索结果)                              │
+│  - sys.query (当前输入)                                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 11.3 System Prompt 配置
+
+```markdown
+你是换电运维助手。每次对话都是独立的故障诊断任务。
+
+【当前设备信息】（来自会话变量）
+设备 ID: {{#conversationVariables.device_id#}}
+故障码：{{#conversationVariables.error_code#}}
+症状：{{#conversationVariables.symptoms#}}
+追问轮次：{{#conversationVariables.round_count#}}/3
+
+【检索到的参考资料】
+{{#merge_results.merged_docs#}}
+
+【本轮用户输入】
+{{#sys.query#}}
+
+请基于以上信息进行分析，不要参考历史对话。
+```
+
+### 11.4 为什么可以关闭记忆窗口
+
+| 原因 | 说明 |
+|------|------|
+| 已有会话变量管理 | `conversationVariables` 已保存所有关键上下文 |
+| 任务型对话 | 不是开放聊天，不需要历史记忆 |
+| 减少 Token 消耗 | 关闭后响应更快，成本更低 |
+| 避免污染 | 防止历史对话干扰意图识别 |
+
+### 11.5 如果开启记忆窗口的注意事项
+
+如果因其他原因必须开启记忆窗口，需在 System Prompt 中明确指示：
+
+```markdown
+【重要】
+1. 请优先使用会话变量中的信息，而不是历史对话
+2. 历史对话仅供参考，以会话变量为准
+3. 每次对话都是独立的故障诊断任务
+```
+
+---
+
+## 十二、完整 Chatflow 流程图
+
+### 12.1 主流程图 (Mermaid)
+
+```mermaid
+flowchart TD
+    Start([用户输入]) --> Node0[节点 0: 检测新对话/新话题]
+    
+    subgraph Node0_Block [新对话检测阶段]
+        Node0 --> Node0_Check{是否有新话题<br/>特征？}
+        Node0_Check -->|round_count 为空<br/>或关键词 | Node0_Init[节点 0.2: 初始化变量]
+        Node0_Check -->|继续上轮对话 | Node1
+        Node0_Init --> Node0_SetVar[round_count=0<br/>ticket_created=false<br/>device_id=null<br/>error_code=null<br/>symptoms=null]
+        Node0_SetVar --> Node1
+    end
+    
+    subgraph Node1_Block [意图识别阶段]
+        Node1[节点 1: 意图识别+信息抽取] --> Node1_LLM[LLM 节点]
+        Node1_LLM --> Node1_Code[节点 1.1: 解析输出]
+        Node1_Code --> Node1_Output{intent:<br/>fault_report?<br/>manual_transfer?<br/>complaint?}
+    end
+    
+    Node1_Output -->|manual_transfer| Node2_Manual[节点 2.1: 转人工处理]
+    Node1_Output -->|complaint| Node2_Complaint[节点 2.2: 投诉处理]
+    Node1_Output -->|fault_report/other| Node1_1
+    
+    subgraph Node1_1_Block [故障码变化检测]
+        Node1_1[节点 1.1: 检测故障码变化] --> Node1_1_Check{error_code<br/>变化？}
+        Node1_1_Check -->|有新故障码 | Node1_1_Reset[重置 round_count=1<br/>更新 error_code]
+        Node1_1_Check -->|无变化 | Node1_1_Inc[round_count += 1]
+        Node1_1_Reset --> Node1_2
+        Node1_1_Inc --> Node1_2
+    end
+    
+    Node1_2[节点 1.2: 更新会话变量] --> Node3
+    
+    subgraph Node3_Block [并行检索阶段]
+        Node3[并行检索] --> Node3_Memory[节点 3: 长期记忆检索<br/>HTTP POST /memory/search<br/>超时 2 秒]
+        Node3 --> Node4[节点 4: 知识库检索<br/>Dify RAG 节点<br/>超时 3 秒]
+        
+        Node3_Memory --> Node3_Handler[代码节点：处理结果]
+        Node4 --> Node4_Handler[代码节点：过滤低质量]
+        
+        Node3_Handler --> Node5
+        Node4_Handler --> Node5
+    end
+    
+    subgraph Node5_Block [结果合并]
+        Node5[节点 5: 结果合并与排序] --> Node5_Code[代码节点：<br/>去重、排序、标注来源]
+        Node5_Code --> Node5_Output{has_data?}
+    end
+    
+    Node5_Output --> Node6[节点 6: 会话变量更新<br/>round_count 已更新<br/>存储当前文档]
+    
+    Node6 --> Node7[节点 7: LLM 诊断生成]
+    
+    subgraph Node7_Block [诊断输出]
+        Node7 --> Node7_Prompt{System Prompt}
+        Node7_Prompt -->|has_data=true| Node7_Format1[输出：诊断分析 + 解决方案]
+        Node7_Prompt -->|has_data=false| Node7_Format2[输出：抱歉暂时无方案]
+        Node7_Format1 --> Node7_1
+        Node7_Format2 --> Node7_1
+    end
+    
+    Node7_1[节点 7.1: 变量赋值<br/>保存待提交数据到临时变量] --> Node8
+    
+    subgraph Node8_Block [人工介入 - 用户反馈]
+        Node8[节点 8: 人工介入节点] --> Node8_Form[表单：<br/>1. feedback_action: resolved/unresolved<br/>2. feedback_note: 补充说明]
+        Node8_Form --> Node8_Wait{等待用户操作}
+        Node8_Wait -->|点击 resolved| Node9_1
+        Node8_Wait -->|点击 unresolved| Node9_2
+        Node8_Wait -->|超时 3600 秒 | Node9_2
+        Node8_Wait -->|用户取消 | Node9_2
+    end
+    
+    subgraph Node9_1_Block [已解决分支]
+        Node9_1[分支 1: 已解决] --> Node9_1_HTTP[HTTP POST /api/v1/dify/memory<br/>保存长期记忆]
+        Node9_1_HTTP --> Node9_1_Log[代码节点：记录日志]
+        Node9_1_Log --> Node9_1_Reset[变量赋值：<br/>round_count=0<br/>ticket_created=false<br/>awaiting_feedback=false]
+        Node9_1_Reset --> Node9_1_Reply[直接回复：<br/>"太好了！已为您记录到知识库📚"]
+        Node9_1_Reply --> End([结束])
+    end
+    
+    subgraph Node9_2_Block [未解决分支]
+        Node9_2[分支 2: 未解决] --> Node9_2_Check[节点 9.2: 检查用户输入<br/>是否有新故障码/新症状]
+        Node9_2_Check --> Node9_2_Action{action 类型？}
+        
+        Node9_2_Action -->|update_error_code| Node9_2_NewCode[更新 error_code<br/>round_count=1]
+        Node9_2_NewCode --> Node9_2_Continue[返回检索阶段<br/>继续诊断]
+        Node9_2_Continue --> Node3
+        
+        Node9_2_Action -->|update_symptoms| Node9_2_NewSymp[更新 symptoms<br/>round_count+1]
+        Node9_2_NewSymp --> Node9_2_CheckRound{round_count<br/>>= 3?}
+        
+        Node9_2_Action -->|ask_for_more| Node9_2_CheckRound
+        
+        Node9_2_Action -->|create_ticket| Node10
+    end
+    
+    subgraph Node9_2_RoundCheck [轮次检查]
+        Node9_2_CheckRound -->|是，>= 3| Node10
+        Node9_2_CheckRound -->|否，< 3| Node12
+    end
+    
+    subgraph Node10_Block [工单创建判断]
+        Node10[节点 10: 工单创建判断] --> Node10_Check{信息完整？}
+        Node10_Check -->|device_id+error_code<br/>+symptoms 都有 | Node11
+        Node10_Check -->|信息缺失 | Node12
+    end
+    
+    subgraph Node11_Block [工单创建]
+        Node11[节点 11: 工单创建] --> Node11_Check[节点 11.1: 幂等性检查]
+        Node11_Check -->|ticket_created=true| Node11_Skip[跳过创建]
+        Node11_Check -->|ticket_created=false| Node11_HTTP[HTTP POST /api/tickets<br/>创建工单]
+        Node11_HTTP --> Node11_SetVar[变量赋值：<br/>ticket_created=true]
+        Node11_SetVar --> Node11_Reply[直接回复：<br/>"工单已创建，工单号：XXX"]
+        Node11_Skip --> Node11_Reply
+        Node11_Reply --> End
+    end
+    
+    subgraph Node12_Block [澄清追问]
+        Node12[节点 12: 澄清追问] --> Node12_LLM[LLM/直接回复：<br/>询问缺失信息]
+        Node12_LLM --> Node12_Reply[直接回复：<br/>"请问您是哪台设备..."]
+        Node12_Reply --> End
+    end
+    
+    subgraph Node2_Manual_Block [转人工处理]
+        Node2_Manual --> Node2_Manual_Reply[直接回复：<br/>"已为您转接人工客服..."]
+        Node2_Manual_Reply --> Node2_Manual_HTTP[HTTP POST /api/tickets<br/>创建转人工工单]
+        Node2_Manual_HTTP --> End
+    end
+    
+    subgraph Node2_Complaint_Block [投诉处理]
+        Node2_Complaint --> Node2_Complaint_Reply[直接回复：<br/>"非常抱歉，请详细描述..."]
+        Node2_Complaint_Reply --> End
+    end
+```
+
+### 12.2 节点清单与编号
+
+| 节点编号 | 节点名称 | 节点类型 | 作用 |
+|---------|---------|---------|------|
+| 0 | 检测新对话/新话题 | 代码执行 | 判断是否需要重置会话状态 |
+| 0.1 | 条件分支 | 条件分支 | 新对话→初始化，否则跳过 |
+| 0.2 | 初始化变量 | 变量赋值 | 重置所有会话变量为初始值 |
+| 1 | 意图识别 + 信息抽取 | LLM+ 代码 | 识别意图，抽取实体，生成查询 |
+| 1.1 | 检测故障码变化 | 代码执行 | 比较新旧故障码，决定轮次重置 |
+| 1.2 | 更新会话变量 | 变量赋值 | 更新 device_id/error_code/symptoms |
+| 2.1 | 转人工处理 | 直接回复+HTTP | 处理转人工请求 |
+| 2.2 | 投诉处理 | 直接回复 | 处理投诉建议 |
+| 3 | 长期记忆检索 | HTTP 请求 | 调用 /memory/search 接口 |
+| 4 | 知识库检索 | Dify RAG | 检索 Dify 知识库 |
+| 5 | 结果合并与排序 | 代码执行 | 去重、排序、标注来源 |
+| 6 | 会话变量更新 | 变量赋值 | 存储当前文档到临时变量 |
+| 7 | LLM 诊断生成 | LLM | 生成诊断分析和解决方案 |
+| 7.1 | 变量赋值 | 变量赋值 | 保存待提交数据到临时变量 |
+| 8 | 人工介入 | 人工介入节点 | 用户确认是否解决 |
+| 9.1 | 已解决分支 | HTTP+ 变量 | 保存记忆 + 重置计数器 |
+| 9.2 | 未解决分支 | 代码执行 | 分析用户输入，决定后续 |
+| 10 | 工单创建判断 | 条件分支 | 检查信息是否完整 |
+| 11 | 工单创建 | HTTP 请求 | 创建工单 |
+| 12 | 澄清追问 | LLM/直接回复 | 询问缺失信息 |
+
+### 12.3 会话变量流转图
+
+```mermaid
+flowchart LR
+    subgraph Variables [会话变量]
+        V1[device_id<br/>设备编号]
+        V2[error_code<br/>故障码]
+        V3[symptoms<br/>症状描述]
+        V4[round_count<br/>追问轮次]
+        V5[ticket_created<br/>工单标志]
+        V6[awaiting_feedback<br/>等待反馈标志]
+    end
+    
+    subgraph UpdatePoints [更新时机]
+        U1[节点 0.2:<br/>新对话初始化]
+        U2[节点 1.2:<br/>信息抽取后更新]
+        U3[节点 6:<br/>检索后存储临时数据]
+        U4[节点 7.1:<br/>保存待提交数据]
+        U5[节点 9.1:<br/>已解决后重置]
+        U6[节点 9.2:<br/>未解决时更新]
+        U7[节点 11:<br/>工单创建后]
+    end
+    
+    U1 -->|重置所有 | Variables
+    U2 -->|更新 | V1
+    U2 -->|更新 | V2
+    U2 -->|更新 | V3
+    U2 -->|+1 | V4
+    U3 -->|存储临时 | V3
+    U5 -->|重置为 0 | V4
+    U5 -->|重置为 false | V5
+    U5 -->|重置为 false | V6
+    U6 -->|+1 或重置为 1 | V4
+    U6 -->|更新 | V2
+    U7 -->|设置为 true | V5
+```
+
+### 12.4 用户反馈处理子流程
+
+```mermaid
+flowchart TD
+    Start([用户反馈]) --> Node8[人工介入节点]
+    
+    Node8 --> UserAction{用户操作}
+    
+    UserAction -->|点击👍已解决 | ResolvedBranch
+    UserAction -->|点击👎未解决 | UnresolvedBranch
+    UserAction -->|超时 3600 秒 | UnresolvedBranch
+    UserAction -->|点击取消 | CancelBranch
+    
+    subgraph ResolvedBranch [已解决分支]
+        ResolvedBranch --> R1[HTTP POST /memory<br/>保存长期记忆]
+        R1 --> R2[记录日志]
+        R2 --> R3[重置变量:<br/>round_count=0<br/>ticket_created=false]
+        R3 --> R4[回复:<br/>"已记录到知识库📚"]
+        R4 --> End1([结束本轮])
+    end
+    
+    subgraph UnresolvedBranch [未解决分支]
+        UnresolvedBranch --> U1[代码节点：<br/>分析用户输入]
+        U1 --> U2{是否有<br/>新故障码？}
+        U2 -->|是 | U3[更新 error_code<br/>round_count=1]
+        U3 --> U4[返回检索阶段]
+        U4 --> Node3[节点 3: 并行检索]
+        
+        U2 -->|否 | U5{round_count<br/>>= 3?}
+        U5 -->|是 | U6[节点 10/11:<br/>创建工单]
+        U5 -->|否 | U7[节点 12:<br/>澄清追问]
+    end
+    
+    subgraph CancelBranch [用户取消]
+        CancelBranch --> C1[视为未解决]
+        C1 --> U5
+    end
+```
+
+### 12.5 轮次计数流转图
+
+```mermaid
+flowchart TD
+    Start([对话开始]) --> Check1{round_count<br/>是否为空？}
+    
+    Check1 -->|是 | Init1[round_count = 0<br/>新对话初始化]
+    Check1 -->|否 | Check2{是否有<br/>新故障码？}
+    
+    Check2 -->|是 | Reset1[round_count = 1<br/>新问题重新开始]
+    Check2 -->|否 | Check3{用户反馈<br/>已解决？}
+    
+    Check3 -->|是 | Reset2[round_count = 0<br/>问题闭环重置]
+    Check3 -->|否 | Add1[round_count += 1<br/>继续累加]
+    
+    Init1 --> Main[进入主流程]
+    Reset1 --> Main
+    Reset2 --> Main
+    Add1 --> Check4{round_count<br/>>= 3?}
+    
+    Check4 -->|是 | Ticket[创建工单]
+    Check4 -->|否 | Ask[继续追问]
+    
+    Main --> End([流程继续])
+    Ticket --> End
+    Ask --> End
+```
+
+---
+
+## 十三、附录
