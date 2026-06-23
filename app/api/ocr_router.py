@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Body
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 
-from app.clients.aliyun_ocr_new import get_ocr_client
+from app.clients.aliyun_ocr import get_ocr_client
 
 router = APIRouter(prefix="/api/v1/ocr", tags=["OCR 识别"])
 
