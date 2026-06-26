@@ -9,7 +9,7 @@ echo "  Dify Bridge - 快速更新脚本"
 echo "=========================================="
 
 # 激活虚拟环境（使用绝对路径）
-export PATH="$PROJECT_DIR/venv/bin:$PATH"
+export PATH="$PROJECT_DIR/.venv/bin:$PATH"
 
 # 1. 拉取最新代码
 echo ""
@@ -47,7 +47,7 @@ pkill -f "uvicorn app.main:app" || true
 # 4. 启动新服务
 echo ""
 echo "🚀 正在启动新服务..."
-nohup $PROJECT_DIR/venv/bin/python -m uvicorn app.main:app \
+nohup $PROJECT_DIR/.venv/bin/python -m uvicorn app.main:app \
   --host 0.0.0.0 --port 8000 > logs/service.log 2>&1 &
 
 sleep 3

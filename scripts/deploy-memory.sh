@@ -58,7 +58,7 @@ echo "✓ 代码已更新"
 echo "=== 重启服务 ==="
 pkill -f uvicorn || true
 sleep 2
-nohup $INSTALL_DIR/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> $INSTALL_DIR/logs/service.log 2>&1 &
+nohup $INSTALL_DIR/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> $INSTALL_DIR/logs/service.log 2>&1 &
 sleep 5
 echo "✓ 服务已重启"
 
