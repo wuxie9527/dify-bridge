@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     # 日志
     log_level: str = "INFO"
+    log_dir: str = "logs"
+    log_format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # 应用
     app_name: str = "Dify Bridge"
@@ -22,6 +24,9 @@ class Settings(BaseSettings):
     alibaba_cloud_access_key_id: str = ""
     alibaba_cloud_access_key_secret: str = ""
     aliyun_ocr_endpoint: str = "ocr-api.cn-hangzhou.aliyuncs.com"
+
+    # Tavily API（备用）
+    tavily_api_key: str = ""
 
     class Config:
         env_file = ".env"

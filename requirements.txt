@@ -1,6 +1,7 @@
 # Core Framework
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
 
 # Database
 sqlalchemy>=2.0.0
@@ -16,5 +17,12 @@ httpx>=0.24.0
 # Environment
 python-dotenv>=1.0.0
 
-# Aliyun OCR SDK (新版 20210707)
+# Aliyun OCR SDK
 alibabacloud-ocr-api20210707>=3.1.0
+
+# Excel 处理
+openpyxl>=3.1.0
+pandas>=2.0.0
+
+# Word 处理（批注功能需要 python-docx>=1.2.0）
+python-docx>=1.2.0

@@ -1,6 +1,7 @@
 # 数据和日志
-data/
-logs/
+data/uploads/*
+data/outputs/*
+logs/*
 *.db
 
 # 环境配置
@@ -9,6 +10,7 @@ logs/
 
 # Python
 venv/
+.venv/
 __pycache__/
 *.so
 .Python
@@ -39,3 +41,7 @@ wheels/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# 临时文件
+*.tmp
+*.log
