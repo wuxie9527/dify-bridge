@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-报告审核 API（带严格校验）
+报告审核 API（支持文件上传和 URL 下载）
 提供两个核心接口：
-1. Excel 提取
-2. 批注写回（带文件 - 批注匹配校验）
+1. Excel 提取（支持 UploadFile 或 URL）
+2. 批注写回（支持 UploadFile 或 URL）
 """
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Dict, Any, Optional, List, Tuple
 import os
 import json
 import logging
+import httpx
+import tempfile
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -28,16 +30,40 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def save_temp_file(file: UploadFile, suffix: str = "") -> str:
-    """保存上传的文件到临时目录"""
+def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = None) -> str:
+    """
+    保存文件到临时目录（支持 UploadFile 或 URL 下载）
+
+    Args:
+        file: UploadFile 对象（可选）
+        suffix: 文件后缀
+        file_url: 文件 URL（可选，与 file 二选一）
+
+    Returns:
+        保存后的文件路径
+    """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{timestamp}_{file.filename}{suffix}"
-    file_path = os.path.join(TEMP_DIR, filename)
 
-    with open(file_path, "wb") as f:
-        f.write(file.file.read())
+    if file:
+        # 传统文件上传
+        filename = f"{timestamp}_{file.filename}{suffix}"
+        file_path = os.path.join(TEMP_DIR, filename)
+        with open(file_path, "wb") as f:
+            f.write(file.file.read())
+        return file_path
 
-    return file_path
+    elif file_url:
+        # 从 URL 下载
+        file_path = os.path.join(TEMP_DIR, f"{timestamp}_download{suffix}")
+        with httpx.Client() as client:
+            resp = client.get(file_url)
+            resp.raise_for_status()
+            with open(file_path, "wb") as f:
+                f.write(resp.content)
+        return file_path
+
+    else:
+        raise ValueError("必须提供 file 或 file_url")
 
 
 def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
@@ -179,15 +205,32 @@ def process_word_annotations(word_path: str, annotations: List[Dict], file_type:
 
 
 @router.post("/extract")
-async def extract_excel(excel_file: UploadFile = File(..., description="评估报表 Excel")):
+async def extract_excel(
+    excel_file: Optional[UploadFile] = File(None, description="评估报表 Excel"),
+    excel_url: Optional[str] = Form(None, description="评估报表 Excel URL")
+):
     """
-    提取 Excel 评估报表数据
+    提取 Excel 评估报表数据（支持文件上传或 URL 下载）
+
+    - 方式 1：直接上传 Excel 文件（excel_file）
+    - 方式 2：提供 Excel 文件 URL（excel_url），服务器会下载后处理
     """
     try:
-        excel_path = save_temp_file(excel_file, ".xlsx")
+        # 检查参数
+        if not excel_file and not excel_url:
+            raise HTTPException(status_code=400, detail="请提供 excel_file（文件上传）或 excel_url（URL 下载）")
+
+        # 保存临时文件
+        excel_path = save_temp_file(file=excel_file, file_url=excel_url, suffix=".xlsx")
 
         with ExcelExtractor(excel_path) as extractor:
             excel_data = extractor.extract_all()
+
+        # 清理临时文件
+        try:
+            os.unlink(excel_path)
+        except:
+            pass
 
         return {
             "success": True,
@@ -195,6 +238,8 @@ async def extract_excel(excel_file: UploadFile = File(..., description="评估�
             "message": "Excel 提取完成，Word 请由 Dify 处理"
         }
 
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"URL 下载失败：{str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提取失败：{str(e)}")
 
@@ -202,27 +247,22 @@ async def extract_excel(excel_file: UploadFile = File(..., description="评估�
 @router.post("/annotate")
 async def annotate_reports(
     excel_file: Optional[UploadFile] = File(None, description="评估报表 Excel"),
+    excel_url: Optional[str] = Form(None, description="评估报表 Excel URL"),
     report_file: Optional[UploadFile] = File(None, description="评估报告 Word"),
+    report_url: Optional[str] = Form(None, description="评估报告 Word URL"),
     explanation_file: Optional[UploadFile] = File(None, description="评估说明 Word"),
+    explanation_url: Optional[str] = Form(None, description="评估说明 Word URL"),
     audit_result: str = Form(..., description="LLM 审核结果 JSON")
 ):
     """
-    根据审核结果添加批注（带严格校验）
+    根据审核结果添加批注（支持文件上传或 URL 下载）
 
     audit_result 格式:
     {
       "audit_conclusion": "通过/有条件通过/不通过",
       "score": 0-100,
       "annotations": {
-        "excel": [
-          {
-            "location": "资产明细表!C3",
-            "type": "cell_comment",
-            "description": "问题描述",
-            "severity": "高/中/低",
-            "suggestion": "修改建议"
-          }
-        ],
+        "excel": [...],
         "report": [...],
         "explanation": [...]
       },
@@ -233,11 +273,11 @@ async def annotate_reports(
         # 解析审核结果
         audit_data = json.loads(audit_result)
 
-        # 校验文件和批注匹配
+        # 校验文件和批注匹配（支持 URL）
         files_provided = {
-            "excel": excel_file is not None,
-            "report": report_file is not None,
-            "explanation": explanation_file is not None
+            "excel": excel_file is not None or excel_url is not None,
+            "report": report_file is not None or report_url is not None,
+            "explanation": explanation_file is not None or explanation_url is not None
         }
         validate_annotations(audit_data, files_provided)
 
@@ -249,25 +289,34 @@ async def annotate_reports(
         }
 
         # Excel 批注处理
-        if excel_file and annotations.get("excel", []):
-            excel_path = save_temp_file(excel_file, ".xlsx")
+        if (excel_file or excel_url) and annotations.get("excel", []):
+            excel_path = save_temp_file(file=excel_file, file_url=excel_url, suffix=".xlsx")
             output_filename = process_excel_annotations(excel_path, annotations["excel"])
             result["annotated_files"]["excel"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["excel_comments"] = len(annotations["excel"])
             result["summary"]["excel_highlights"] = len([
                 i for i in annotations["excel"] if i.get("severity") == "高"
             ])
+            # 清理临时文件
+            try:
+                os.unlink(excel_path)
+            except:
+                pass
 
         # Word 报告批注处理
         report_warnings = []
-        if report_file and annotations.get("report", []):
-            report_path = save_temp_file(report_file, ".docx")
+        if (report_file or report_url) and annotations.get("report", []):
+            report_path = save_temp_file(file=report_file, file_url=report_url, suffix=".docx")
             output_filename, warnings = process_word_annotations(report_path, annotations["report"], "报告")
             result["annotated_files"]["report"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["report_annotations"] = len(annotations["report"])
             report_warnings = warnings
-        elif report_file and not annotations.get("report", []):
-            # 上传了报告但没有批注，跳过不生成
+            # 清理临时文件
+            try:
+                os.unlink(report_path)
+            except:
+                pass
+        elif (report_file or report_url) and not annotations.get("report", []):
             logger.warning("上传了评估报告但没有批注，跳过不生成文件")
             result["skipped_files"] = result.get("skipped_files", [])
             result["skipped_files"].append({
@@ -277,14 +326,18 @@ async def annotate_reports(
 
         # Word 说明批注处理
         explanation_warnings = []
-        if explanation_file and annotations.get("explanation", []):
-            explanation_path = save_temp_file(explanation_file, ".docx")
+        if (explanation_file or explanation_url) and annotations.get("explanation", []):
+            explanation_path = save_temp_file(file=explanation_file, file_url=explanation_url, suffix=".docx")
             output_filename, warnings = process_word_annotations(explanation_path, annotations["explanation"], "说明")
             result["annotated_files"]["explanation"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["explanation_annotations"] = len(annotations["explanation"])
             explanation_warnings = warnings
-        elif explanation_file and not annotations.get("explanation", []):
-            # 上传了说明但没有批注，跳过不生成
+            # 清理临时文件
+            try:
+                os.unlink(explanation_path)
+            except:
+                pass
+        elif (explanation_file or explanation_url) and not annotations.get("explanation", []):
             logger.warning("上传了评估说明但没有批注，跳过不生成文件")
             result["skipped_files"] = result.get("skipped_files", [])
             result["skipped_files"].append({
@@ -302,6 +355,8 @@ async def annotate_reports(
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="audit_result 格式错误，必须是有效的 JSON 字符串")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"文件下载失败：{str(e)}")
     except HTTPException:
         raise
     except Exception as e:
