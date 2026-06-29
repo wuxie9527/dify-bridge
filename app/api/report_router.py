@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
 报告审核 API（支持文件上传和 URL 下载）
-提供两个核心接口：
+提供三个核心接口：
 1. Excel 提取（支持 UploadFile 或 URL）
-2. 批注写回（支持 UploadFile 或 URL）
+2. Word 文本提取（支持 URL）
+3. 批注写回（支持 UploadFile 或 URL）
 """
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Dict, Any, Optional, List, Tuple
@@ -13,6 +14,8 @@ import logging
 import httpx
 import tempfile
 from datetime import datetime
+from io import BytesIO
+from docx import Document
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +245,64 @@ async def extract_excel(
         raise HTTPException(status_code=400, detail=f"URL 下载失败：{str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"提取失败：{str(e)}")
+
+
+@router.post("/extract/word")
+async def extract_word_text(
+    file_url: str = Form(..., description="Word 文件 URL（评估报告或评估说明）")
+):
+    """
+    提取 Word 文档文本内容（支持 URL 下载）
+
+    适用于：
+    - 评估报告.docx
+    - 评估说明.docx
+
+    返回段落列表和完整文本
+    """
+    try:
+        # 下载文件
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(file_url)
+            resp.raise_for_status()
+            file_content = resp.content
+
+        # 保存到临时文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_path = os.path.join(TEMP_DIR, f"{timestamp}_download.docx")
+        with open(temp_path, "wb") as f:
+            f.write(file_content)
+
+        try:
+            # 提取文本
+            doc = Document(temp_path)
+            paragraphs = []
+            for p in doc.paragraphs:
+                text = p.text.strip()
+                if text:  # 只保留非空段落
+                    paragraphs.append(text)
+
+            # 清理临时文件
+            os.unlink(temp_path)
+
+            return {
+                "success": True,
+                "text": "\n\n".join(paragraphs),
+                "paragraphs": paragraphs,
+                "paragraph_count": len(paragraphs),
+                "message": "Word 文本提取完成"
+            }
+
+        except Exception as e:
+            # 确保清理临时文件
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
+            raise e
+
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=400, detail=f"URL 下载失败：{str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Word 提取失败：{str(e)}")
 
 
 @router.post("/annotate")
