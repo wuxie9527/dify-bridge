@@ -258,7 +258,7 @@ async def extract_word_text(
     - 评估报告.docx
     - 评估说明.docx
 
-    返回段落列表和完整文本
+    返回段落列表、完整文本和表格（Markdown 格式）
     """
     try:
         # 下载文件
@@ -274,22 +274,58 @@ async def extract_word_text(
             f.write(file_content)
 
         try:
-            # 提取文本
+            # 提取文本和表格
             doc = Document(temp_path)
+
             paragraphs = []
+            tables_markdown = []
+
+            # 提取段落（跳过表格内的段落，避免重复）
+            in_table = False
             for p in doc.paragraphs:
+                # 检查段落是否在表格内
+                if p._element.xpath('./ancestor::w:tbl'):
+                    continue  # 跳过表格内的段落
+
                 text = p.text.strip()
-                if text:  # 只保留非空段落
+                if text:
                     paragraphs.append(text)
+
+            # 提取表格（转为 Markdown）
+            for i, table in enumerate(doc.tables):
+                md_rows = []
+                for row_idx, row in enumerate(table.rows):
+                    cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+                    md_row = "| " + " | ".join(cells) + " |"
+                    md_rows.append(md_row)
+
+                    # 在第一行后添加表头分隔线
+                    if row_idx == 0:
+                        separator = "|" + "|".join(["---"] * len(cells)) + "|"
+                        md_rows.append(separator)
+
+                tables_markdown.append({
+                    "table_index": i,
+                    "markdown": "\n".join(md_rows),
+                    "row_count": len(table.rows),
+                    "col_count": len(table.columns)
+                })
+
+            # 构建完整内容（在段落中插入表格标记）
+            content_parts = paragraphs.copy()
+            for table_info in tables_markdown:
+                content_parts.append(f"\n[表格 {table_info['table_index']+1} 开始]\n{table_info['markdown']}\n[表格结束]\n")
 
             # 清理临时文件
             os.unlink(temp_path)
 
             return {
                 "success": True,
-                "text": "\n\n".join(paragraphs),
+                "content": "\n\n".join(content_parts),
                 "paragraphs": paragraphs,
+                "tables": tables_markdown,
                 "paragraph_count": len(paragraphs),
+                "table_count": len(tables_markdown),
                 "message": "Word 文本提取完成"
             }
 
