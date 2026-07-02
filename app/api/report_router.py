@@ -210,26 +210,30 @@ def process_word_annotations(word_path: str, annotations: List[Dict], file_type:
 @router.post("/extract")
 async def extract_excel(
     excel_file: Optional[UploadFile] = File(None, description="评估报表 Excel"),
-    excel_url: Optional[str] = Form(None, description="评估报表 Excel URL")
+    excel_url: Optional[str] = Form(None, description="评估报表 Excel URL"),
+    mode: str = Form("audit", description="提取模式：audit=精简审核模式，full=完整模式")
 ):
     """
     提取 Excel 评估报表数据（支持文件上传或 URL 下载）
+
+    - mode=audit：精简模式，只提取评估审核必需数据（体积小，推荐）
+    - mode=full：完整模式，提取所有数据包括公式/备注（体积大）
 
     - 方式 1：直接上传 Excel 文件（excel_file）
     - 方式 2：提供 Excel 文件 URL（excel_url），服务器会下载后处理
     """
     try:
-        # 检查参数
         if not excel_file and not excel_url:
             raise HTTPException(status_code=400, detail="请提供 excel_file（文件上传）或 excel_url（URL 下载）")
 
-        # 保存临时文件
         excel_path = save_temp_file(file=excel_file, file_url=excel_url, suffix=".xlsx")
 
         with ExcelExtractor(excel_path) as extractor:
-            excel_data = extractor.extract_all()
+            if mode == "full":
+                excel_data = extractor.extract_all()
+            else:
+                excel_data = extractor.extract_for_audit()
 
-        # 清理临时文件
         try:
             os.unlink(excel_path)
         except:
