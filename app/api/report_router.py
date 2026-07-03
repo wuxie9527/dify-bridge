@@ -227,17 +227,25 @@ async def extract_excel(
             raise HTTPException(status_code=400, detail="请提供 excel_file（文件上传）或 excel_url（URL 下载）")
 
         excel_path = save_temp_file(file=excel_file, file_url=excel_url, suffix=".xlsx")
+        logger.info(f"保存临时文件：{excel_path}")
 
-        with ExcelExtractor(excel_path) as extractor:
+        # 提取数据（手动管理生命周期以确保文件句柄释放）
+        extractor = ExcelExtractor(excel_path)
+        try:
             if mode == "full":
                 excel_data = extractor.extract_all()
             else:
                 excel_data = extractor.extract_for_audit()
+        finally:
+            extractor.close()
+            logger.info(f"Excel 提取完成，关闭工作簿")
 
+        # 删除临时文件
         try:
             os.unlink(excel_path)
-        except:
-            pass
+            logger.info(f"临时文件已删除：{excel_path}")
+        except Exception as e:
+            logger.warning(f"删除临时文件失败 {excel_path}: {e}")
 
         return {
             "success": True,
@@ -320,10 +328,7 @@ async def extract_word_text(
             for table_info in tables_markdown:
                 content_parts.append(f"\n[表格 {table_info['table_index']+1} 开始]\n{table_info['markdown']}\n[表格结束]\n")
 
-            # 清理临时文件
-            os.unlink(temp_path)
-
-            return {
+            result = {
                 "success": True,
                 "content": "\n\n".join(content_parts),
                 "paragraphs": paragraphs,
@@ -336,8 +341,20 @@ async def extract_word_text(
         except Exception as e:
             # 确保清理临时文件
             if os.path.exists(temp_path):
-                os.unlink(temp_path)
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
             raise e
+
+        # 清理临时文件（在 return 之前）
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+
+        return result
 
     except httpx.HTTPError as e:
         raise HTTPException(status_code=400, detail=f"URL 下载失败：{str(e)}")
