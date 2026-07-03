@@ -452,6 +452,400 @@ response = requests.post(
 
 # 获取下载链接
 download_links = response.json()["annotated_files"]
+# 生成完整 URL
+base_url = "http://localhost:8002"
+excel_download = f"{base_url}{download_links['excel']}"
+report_download = f"{base_url}{download_links['report']}"
+explanation_download = f"{base_url}{download_links['explanation']}"
+```
+
+---
+
+## 🤖 Dify 集成完整配置
+
+### 工作流结构
+
+```
+开始节点 (上传 3 个文件)
+    ↓
+Code 节点 1 - 文件分类并保存 URL
+    ↓
+    ├─────────────┬─────────────┬─────────────┐
+    ↓             ↓             ↓             ↓
+┌────────┐   ┌────────┐   ┌────────┐   ┌────────┐
+│ HTTP   │   │ HTTP   │   │ HTTP   │   │ LLM    │
+│ Excel  │   │ 报告   │   │ 说明   │   │ 审核   │
+│ 提取   │   │ 提取   │   │ 提取   │   │        │
+└────────┘   └────────┘   └────────┘   └────────┘
+    │             │             │             │
+    └─────────────┴─────────────┴─────────────┘
+                              ↓
+                    Code 节点 2 - 格式转换
+                              ↓
+                    HTTP - /annotate (批注写回)
+                              ↓
+                    Code 节点 3 - 提取下载链接
+                              ↓
+                    结束节点 - 回复用户（含下载链接）
+```
+
+---
+
+### 开始节点配置
+
+**输入变量：**
+
+| 变量名 | 类型 | 说明 |
+|--------|------|------|
+| `eval_report` | File | 评估报表（Excel） |
+| `eval_report_doc` | File | 评估报告（Word） |
+| `eval_explanation` | File | 评估说明（Word） |
+
+---
+
+### Code 节点 1：文件分类并保存 URL
+
+**输入：** `files` (Array) - 来自开始节点的文件列表
+
+**代码：**
+
+```python
+def main(files: list) -> dict:
+    """
+    文件分类并保存原始 URL（后续写入时复用）
+    """
+    excel_url = None
+    report_url = None
+    explanation_url = None
+    
+    for f in files:
+        ext = f.get('extension', '').lower()
+        filename = f.get('filename', '').lower()
+        url = f.get('url')
+        
+        if ext in ['.xlsx', '.xls']:
+            excel_url = url
+        elif ext == '.docx':
+            if '报告' in filename:
+                report_url = url
+            elif '说明' in filename:
+                explanation_url = url
+    
+    return {
+        "excel_url": excel_url,
+        "report_url": report_url,
+        "explanation_url": explanation_url,
+        "file_count": len([u for u in [excel_url, report_url, explanation_url] if u])
+    }
+```
+
+**输出变量：**
+
+| 变量名 | 类型 | 说明 |
+|--------|------|------|
+| `excel_url` | String | Excel 文件 URL |
+| `report_url` | String | 评估报告 URL |
+| `explanation_url` | String | 评估说明 URL |
+| `file_count` | Integer | 有效文件数量 |
+
+---
+
+### HTTP 请求节点：提取数据
+
+**Excel 提取：**
+
+```
+URL: http://172.17.0.1:8002/api/v1/report/extract
+Method: POST
+Content-Type: form-data
+
+Body:
+  excel_url: {{#code1.excel_url#}}
+  mode: audit
+```
+
+**Word 报告提取：**
+
+```
+URL: http://172.17.0.1:8002/api/v1/report/extract/word
+Method: POST
+Content-Type: form-data
+
+Body:
+  file_url: {{#code1.report_url#}}
+```
+
+**Word 说明提取：**
+
+```
+URL: http://172.17.0.1:8002/api/v1/report/extract/word
+Method: POST
+Content-Type: form-data
+
+Body:
+  file_url: {{#code1.explanation_url#}}
+```
+
+---
+
+### LLM 节点：审核分析
+
+**输入：**
+
+```
+excel_data: {{#http_excel.excel_data#}}
+word_report: {{#http_report.content#}}
+word_explanation: {{#http_explanation.content#}}
+```
+
+**Prompt 示例：**
+
+```
+你是资产评估审核专家，请审核以下文档：
+
+【Excel 评估报表】
+{{#excel_data#}}
+
+【评估报告】
+{{#word_report#}}
+
+【评估说明】
+{{#word_explanation#}}
+
+【审核要点】
+1. 计算准确性：检查公式、合计、勾稽关系
+2. 数据一致性：报表、报告、说明之间数据是否一致
+3. 假设合理性：收入增长率、折现率等参数是否有依据
+4. 披露充分性：特别事项、风险是否充分披露
+5. 文本校对：错别字、日期、名称是否正确
+
+【输出格式】
+严格输出 JSON：
+{
+  "annotations": [
+    {
+      "id": "A-001",
+      "document": "评估报表.xlsx",
+      "location": "Sheet: 评估值测算，单元格：B15",
+      "severity": "高",
+      "dimension": "算术与数据准确性",
+      "issue": "问题描述",
+      "suggestion": "修改建议"
+    }
+  ],
+  "audit_conclusion": "通过/有条件通过/不通过",
+  "score": 0-100
+}
+```
+
+---
+
+### Code 节点 2：格式转换
+
+**输入：** `llm_output` (Object) - LLM 节点的输出
+
+**代码：**
+
+```python
+def main(llm_output: dict) -> dict:
+    """
+    将 LLM 输出转换为 API 要求的格式
+    """
+    import re
+    
+    annotations = llm_output.get('annotations', [])
+    
+    # 分类问题
+    excel_issues = []
+    report_issues = []
+    explanation_issues = []
+    
+    for issue in annotations:
+        # 转换 location 格式
+        location = convert_location(issue['location'], issue['document'])
+        
+        audit_item = {
+            "location": location,
+            "description": issue['issue'],
+            "suggestion": issue['suggestion'],
+            "severity": issue['severity']
+        }
+        
+        # 根据文档分类
+        doc = issue.get('document', '')
+        if 'xlsx' in doc or '报表' in doc:
+            excel_issues.append(audit_item)
+        elif '报告' in doc:
+            report_issues.append(audit_item)
+        elif '说明' in doc:
+            explanation_issues.append(audit_item)
+    
+    # 统计
+    high_count = sum(1 for i in annotations if i['severity'] == '高')
+    medium_count = sum(1 for i in annotations if i['severity'] == '中')
+    low_count = sum(1 for i in annotations if i['severity'] == '低')
+    
+    # 生成审核结论
+    if high_count > 3:
+        conclusion = "不通过"
+    elif high_count > 0 or medium_count > 5:
+        conclusion = "有条件通过"
+    else:
+        conclusion = "通过"
+    
+    return {
+        "audit_conclusion": conclusion,
+        "annotations": {
+            "excel": excel_issues,
+            "report": report_issues,
+            "explanation": explanation_issues
+        },
+        "summary": {
+            "total_issues": len(annotations),
+            "high_severity": high_count,
+            "medium_severity": medium_count,
+            "low_severity": low_count
+        }
+    }
+
+
+def convert_location(raw_location: str, document: str) -> str:
+    """
+    转换 location 格式
+    
+    Excel: "Sheet: 评估值测算，单元格：B15" → "评估值测算!B15"
+    Word: "第四部分...- (1) 营业收入..." → "营业收入分析预测"
+    """
+    import re
+    
+    if 'xlsx' in document or '报表' in document or '测算' in document:
+        # Excel 格式转换
+        match = re.search(r'Sheet:\s*([^,]+),?\s*单元格：?\s*([A-Z0-9]+)', raw_location)
+        if match:
+            sheet = match.group(1).strip()
+            cell = match.group(2).strip()
+            return f"{sheet}!{cell}"
+        return raw_location
+    else:
+        # Word 格式转换 - 取最后一级章节名
+        parts = raw_location.split('-')
+        if parts:
+            last_part = parts[-1].strip()
+            last_part = re.sub(r'^[0-9(（][^)]*[).、]\s*', '', last_part)
+            return last_part
+        return raw_location
+```
+
+---
+
+### HTTP 请求节点：批注写回
+
+```
+URL: http://172.17.0.1:8002/api/v1/report/annotate
+Method: POST
+Content-Type: form-data
+
+Body:
+  excel_url: {{#code1.excel_url#}}      # 复用保存的 URL
+  report_url: {{#code1.report_url#}}    # 复用保存的 URL
+  explanation_url: {{#code1.explanation_url#}}  # 复用保存的 URL
+  audit_result: {{#code2.output#}}      # JSON 字符串
+```
+
+---
+
+### Code 节点 3：提取下载链接
+
+**输入：** `api_response` (Object) - annotate 接口的响应
+
+**代码：**
+
+```python
+def main(api_response: dict) -> dict:
+    """
+    从 annotate API 响应中提取下载链接并生成提示
+    """
+    import json
+    
+    body = api_response.get('body', '{}')
+    data = json.loads(body)
+    
+    annotated_files = data.get('annotated_files', {})
+    summary = data.get('summary', {})
+    
+    # 生成完整下载 URL
+    base_url = "http://110.42.222.40:8002"
+    
+    download_links = {}
+    for file_type, path in annotated_files.items():
+        download_links[file_type] = f"{base_url}{path}"
+    
+    # 生成提示文本
+    messages = []
+    if 'excel' in download_links:
+        count = summary.get('excel_comments', 0)
+        messages.append(f"📊 Excel 审核版：{download_links['excel']}（{count} 条批注）")
+    if 'report' in download_links:
+        count = summary.get('report_annotations', 0)
+        messages.append(f"📄 报告审核版：{download_links['report']}（{count} 条批注）")
+    if 'explanation' in download_links:
+        count = summary.get('explanation_annotations', 0)
+        messages.append(f"📋 说明审核版：{download_links['explanation']}（{count} 条批注）")
+    
+    if messages:
+        message = "✅ 审核完成，点击下载审核版文件：\n\n" + "\n\n".join(messages)
+    else:
+        message = "⚠️ 未生成审核文件，请检查输入"
+    
+    return {
+        "download_links": download_links,
+        "summary": summary,
+        "success": data.get('success', False),
+        "message": message
+    }
+```
+
+**输出变量：**
+
+| 变量名 | 类型 | 说明 |
+|--------|------|------|
+| `download_links` | Object | 下载链接字典（excel/report/explanation） |
+| `summary` | Object | 审核摘要（批注数量等） |
+| `message` | String | 友好的提示文本（含下载链接） |
+| `success` | Boolean | 是否成功 |
+
+---
+
+### 结束节点：回复用户
+
+**回复内容：**
+
+```
+{{#code3.message#}}
+```
+
+**输出示例：**
+
+```
+✅ 审核完成，点击下载审核版文件：
+
+📊 Excel 审核版：http://110.42.222.40:8002/api/v1/report/download/评估报表_审核版_20260627_020836.xlsx（5 条批注）
+
+📄 报告审核版：http://110.42.222.40:8002/api/v1/report/download/评估报告_审核版_20260627_020836.docx（3 条批注）
+
+📋 说明审核版：http://110.42.222.40:8002/api/v1/report/download/评估说明_审核版_20260627_020836.docx（2 条批注）
+```
+
+---
+
+## ⚠️ 注意事项
+
+1. **文件大小限制**：建议不超过 50MB
+2. **临时文件清理**：extract 接口会自动删除临时文件
+3. **URL 有效期**：Dify 文件 URL 有时效性，建议尽快调用（5-10 分钟内完成流程）
+4. **并发处理**：目前为单实例，大批量请 Docker 部署
+5. **Word 批注**：Word 使用原生批注功能，批注会显示在对应段落旁
+6. **Excel 批注**：高严重程度问题会黄色高亮单元格
 ```
 
 ---
