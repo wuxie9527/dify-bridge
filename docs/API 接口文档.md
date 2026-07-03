@@ -175,7 +175,41 @@ Content-Type: multipart/form-data
 | `report_url` | String | 否 | 评估报告 Word URL |
 | `explanation_file` | File | 否 | 评估说明 Word 文件（与 `explanation_url` 二选一） |
 | `explanation_url` | String | 否 | 评估说明 Word URL |
-| `audit_result` | String | 是 | LLM 审核结果（JSON 字符串） |
+| `audit_result` | String | **是** | LLM 审核结果（JSON 字符串） |
+
+### 参数对应关系
+
+**根据 `audit_result` 中的批注类型，必须提供对应的文件参数：**
+
+| `audit_result.annotations` 中的批注 | 必须提供的文件参数 |
+|-------------------------------------|-------------------|
+| `excel` 数组有数据 | `excel_file` **或** `excel_url`（二选一） |
+| `report` 数组有数据 | `report_file` **或** `report_url`（二选一） |
+| `explanation` 数组有数据 | `explanation_file` **或** `explanation_url`（二选一） |
+
+**示例：**
+
+```json
+{
+  "annotations": {
+    "excel": [...],    // 有 Excel 批注 → 必须传 excel_url 或 excel_file
+    "report": [...],   // 有报告批注 → 必须传 report_url 或 report_file
+    "explanation": []  // 无说明批注 → 可不传 explanation 参数
+  }
+}
+```
+
+```bash
+# 正确示例：有 Excel 批注，传了 excel_url
+curl -X POST http://localhost:8002/api/v1/report/annotate \
+  -F "excel_url=http://dify/files/xxx.xlsx" \
+  -F 'audit_result={"annotations":{"excel":[...]}}'
+
+# 错误示例：有 Excel 批注，但没传 Excel 文件 → 跳过处理
+curl -X POST http://localhost:8002/api/v1/report/annotate \
+  -F 'audit_result={"annotations":{"excel":[...]}}'
+# 返回：{"success": true, "annotated_files": {}}  // excel 为空，未生成文件
+```
 
 ### audit_result JSON 格式
 
