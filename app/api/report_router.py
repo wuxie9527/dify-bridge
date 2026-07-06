@@ -92,7 +92,7 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
         else:
             # 验证每个 Excel 批注的 location 格式
             for i, ann in enumerate(excel_annotations):
-                original_text = ann.get("original_text", "")
+                location = ann.get("location", "")
                 if "!" not in location:
                     errors.append(f"Excel 批注[{i}] 的 location 格式错误：'{location}'。应为 'Sheet 名!单元格' 格式，如 '资产明细表!C3'")
                 if not ann.get("description"):
@@ -107,9 +107,9 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
             errors.append("上传了评估报告 Word 文件，但 annotations.report 为空。请提供报告章节的批注内容。")
         else:
             for i, ann in enumerate(report_annotations):
-                original_text = ann.get("original_text", "")
-                if not original_text:
-                    errors.append(f"报告批注[{i}] 缺少 location 字段（应为章节名称，如'评估方法'）")
+                location = ann.get("location", "")
+                if not location:
+                    errors.append(f"报告批注[{i}] 缺少 original_text 字段（应包含报告中的原文段落）")
                 if not ann.get("description"):
                     errors.append(f"报告批注[{i}] 缺少 description 字段")
                 if not ann.get("suggestion"):
@@ -122,9 +122,9 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
             errors.append("上传了评估说明 Word 文件，但 annotations.explanation 为空。请提供说明章节的批注内容。")
         else:
             for i, ann in enumerate(explanation_annotations):
-                original_text = ann.get("original_text", "")
-                if not original_text:
-                    errors.append(f"说明批注[{i}] 缺少 location 字段（应为章节名称，如'特别事项说明'）")
+                location = ann.get("location", "")
+                if not location:
+                    errors.append(f"说明批注[{i}] 缺少 original_text 字段（应包含说明中的原文段落）")
                 if not ann.get("description"):
                     errors.append(f"说明批注[{i}] 缺少 description 字段")
                 if not ann.get("suggestion"):
