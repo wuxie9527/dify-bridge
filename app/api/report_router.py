@@ -149,38 +149,72 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
         raise HTTPException(status_code=400, detail=error_msg)
 
 
-def process_excel_annotations(excel_path: str, annotations: List[Dict]) -> str:
+def process_excel_annotations(excel_path: str, annotations: List[Dict]) -> Tuple[str, List[Dict]]:
     """
     处理 Excel 批注
 
     Returns:
-        输出文件路径
+        (输出文件路径，未匹配的批注列表)
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = f"评估报表_审核版_{timestamp}.xlsx"
     output_path = os.path.join(OUTPUT_DIR, output_filename)
 
+    unmatched = []
+
     with ExcelAnnotator(excel_path) as annotator:
         for issue in annotations:
             location = issue.get("location", "")
-            if "!" in location:
-                sheet_name, cell = location.split("!", 1)
-                comment_text = f"{issue['description']}\n\n建议：{issue.get('suggestion', '')}"
+            if "!" not in location:
+                unmatched.append({
+                    "file_type": "excel",
+                    "location": location,
+                    "description": issue.get("description", ""),
+                    "suggestion": issue.get("suggestion", ""),
+                    "reason": "location 格式错误，应为 'Sheet 名!单元格' 格式"
+                })
+                continue
 
-                annotator.add_comment(
-                    sheet_name=sheet_name,
-                    cell=cell,
-                    comment=comment_text,
-                    author="审核 AI"
-                )
+            sheet_name, cell = location.split("!", 1)
 
-                if issue.get("severity") == "高":
-                    annotator.highlight_cell(sheet_name, cell, "FFFF00")
+            # 验证单元格坐标是否有效（如 B15, C5 等）
+            import re
+            if not re.search(r'^[A-Z]+\d+$', cell.upper()):
+                unmatched.append({
+                    "file_type": "excel",
+                    "location": location,
+                    "description": issue.get("description", ""),
+                    "suggestion": issue.get("suggestion", ""),
+                    "reason": f"单元格坐标无效：{cell}"
+                })
+                continue
+
+            comment_text = f"{issue['description']}\n\n建议：{issue.get('suggestion', '')}"
+
+            success, error = annotator.add_comment(
+                sheet_name=sheet_name,
+                cell=cell,
+                comment=comment_text,
+                author="审核 AI"
+            )
+
+            if not success:
+                unmatched.append({
+                    "file_type": "excel",
+                    "location": location,
+                    "description": issue.get("description", ""),
+                    "suggestion": issue.get("suggestion", ""),
+                    "reason": error
+                })
+                continue
+
+            if issue.get("severity") == "高":
+                annotator.highlight_cell(sheet_name, cell, "FFFF00")
 
         annotator.create_audit_sheet(annotations)
         annotator.save(output_path)
 
-    return output_filename
+    return output_filename, unmatched
 
 
 def process_word_annotations(word_path: str, annotations: List[Dict], file_type: str = "报告") -> Tuple[str, List[Dict]]:
@@ -418,14 +452,19 @@ async def annotate_reports(
         }
 
         # Excel 批注处理
+        excel_unmatched = []
         if (excel_file or excel_url) and annotations.get("excel", []):
+            logger.info(f"开始处理 Excel 批注，共 {len(annotations['excel'])} 条")
             excel_path = save_temp_file(file=excel_file, file_url=excel_url, suffix=".xlsx")
-            output_filename = process_excel_annotations(excel_path, annotations["excel"])
+            logger.info(f"Excel 文件已保存到：{excel_path}")
+            output_filename, unmatched = process_excel_annotations(excel_path, annotations["excel"])
+            excel_unmatched = unmatched
             result["annotated_files"]["excel"] = f"/api/v1/report/download/{output_filename}"
-            result["summary"]["excel_comments"] = len(annotations["excel"])
+            result["summary"]["excel_comments"] = len(annotations["excel"]) - len(unmatched)
             result["summary"]["excel_highlights"] = len([
                 i for i in annotations["excel"] if i.get("severity") == "高"
             ])
+            logger.info(f"Excel 批注处理完成，{len(unmatched)} 条未匹配")
             # 清理临时文件
             try:
                 os.unlink(excel_path)
@@ -498,16 +537,20 @@ async def annotate_reports(
                 "reason": "annotations.explanation 为空"
             })
 
-        # 添加匹配失败警告
-        all_warnings = report_warnings + explanation_warnings
-        all_unmatched = report_unmatched + explanation_unmatched
+        # 添加匹配失败警告（统一收集所有未匹配的批注）
+        all_warnings = report_warnings + explanation_warnings + excel_unmatched
+        all_unmatched = report_unmatched + explanation_unmatched + excel_unmatched
         if all_warnings:
             result["match_warnings"] = all_warnings
             result["warning_count"] = len(all_warnings)
-        # 单独返回未匹配的批注信息（包含 original_text, description, suggestion）
+        # 单独返回未匹配的批注信息（包含 location/original_text, description, suggestion, reason）
         if all_unmatched:
             result["unmatched_annotations"] = all_unmatched
             result["unmatched_count"] = len(all_unmatched)
+
+        # 添加成功标记
+        result["success"] = True
+        logger.info(f"批注处理完成，成功 {result['summary'].get('excel_comments', 0) + result['summary'].get('report_annotations', 0) + result['summary'].get('explanation_annotations', 0)} 条，失败 {len(all_unmatched)} 条")
 
         return result
 

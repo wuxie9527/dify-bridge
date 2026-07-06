@@ -36,13 +36,21 @@ class ExcelAnnotator:
             cell: 单元格坐标，如 "C3"
             comment: 批注内容
             author: 批注作者
+
+        Returns:
+            (成功标志，错误信息)
         """
         if sheet_name not in self.wb.sheetnames:
             logger.warning(f"Sheet 不存在：{sheet_name}")
-            return
+            return False, f"Sheet 不存在：{sheet_name}"
 
         sheet = self.wb[sheet_name]
-        target_cell = sheet[cell]
+
+        try:
+            target_cell = sheet[cell]
+        except ValueError as e:
+            logger.warning(f"单元格坐标无效：{cell} - {e}")
+            return False, f"单元格坐标无效：{cell}"
 
         # 保留原有批注
         existing_comment = target_cell.comment.text if target_cell.comment else ""
@@ -55,6 +63,7 @@ class ExcelAnnotator:
 
         target_cell.comment = Comment(new_comment, author)
         logger.info(f"添加批注到 {sheet_name}!{cell}")
+        return True, None
 
     def highlight_cell(self, sheet_name: str, cell_range: str, color: str = "FFFF00"):
         """
