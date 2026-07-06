@@ -423,12 +423,21 @@ async def annotate_reports(
 
         # Word 报告批注处理
         report_warnings = []
+        report_unmatched = []
         if (report_file or report_url) and annotations.get("report", []):
             report_path = save_temp_file(file=report_file, file_url=report_url, suffix=".docx")
             output_filename, warnings = process_word_annotations(report_path, annotations["report"], "报告")
             result["annotated_files"]["report"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["report_annotations"] = len(annotations["report"])
             report_warnings = warnings
+            # 提取未匹配的批注信息
+            report_unmatched = [{
+                "file_type": "report",
+                "original_text": w.get("original_text", ""),
+                "description": w.get("description", ""),
+                "suggestion": w.get("suggestion", ""),
+                "reason": w.get("reason", "")
+            } for w in warnings if w.get("original_text")]
             # 清理临时文件
             try:
                 os.unlink(report_path)
@@ -444,12 +453,21 @@ async def annotate_reports(
 
         # Word 说明批注处理
         explanation_warnings = []
+        explanation_unmatched = []
         if (explanation_file or explanation_url) and annotations.get("explanation", []):
             explanation_path = save_temp_file(file=explanation_file, file_url=explanation_url, suffix=".docx")
             output_filename, warnings = process_word_annotations(explanation_path, annotations["explanation"], "说明")
             result["annotated_files"]["explanation"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["explanation_annotations"] = len(annotations["explanation"])
             explanation_warnings = warnings
+            # 提取未匹配的批注信息
+            explanation_unmatched = [{
+                "file_type": "explanation",
+                "original_text": w.get("original_text", ""),
+                "description": w.get("description", ""),
+                "suggestion": w.get("suggestion", ""),
+                "reason": w.get("reason", "")
+            } for w in warnings if w.get("original_text")]
             # 清理临时文件
             try:
                 os.unlink(explanation_path)
@@ -465,9 +483,14 @@ async def annotate_reports(
 
         # 添加匹配失败警告
         all_warnings = report_warnings + explanation_warnings
+        all_unmatched = report_unmatched + explanation_unmatched
         if all_warnings:
             result["match_warnings"] = all_warnings
             result["warning_count"] = len(all_warnings)
+        # 单独返回未匹配的批注信息（包含 original_text, description, suggestion）
+        if all_unmatched:
+            result["unmatched_annotations"] = all_unmatched
+            result["unmatched_count"] = len(all_unmatched)
 
         return result
 

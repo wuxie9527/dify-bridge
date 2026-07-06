@@ -78,13 +78,14 @@ class WordAnnotator:
             else:
                 warning = {
                     "annotation_index": i,
-                    "original_text": original_text[:50] + "..." if len(original_text) > 50 else original_text,
+                    "original_text": original_text,
                     "description": description,
+                    "suggestion": suggestion,
                     "reason": "在文档中未找到匹配的原文段落"
                 }
                 warnings.append(warning)
                 self.match_warnings.append(warning)
-                logger.warning(f"❌ 未找到匹配的原文段落")
+                logger.warning(f"❌ 未找到匹配的原文段落：{original_text[:30]}...")
 
         return warnings
 
