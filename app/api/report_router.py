@@ -144,7 +144,9 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
         errors.append("已上传文件但 annotations 为空。请提供至少一条批注内容。")
 
     if errors:
-        raise HTTPException(status_code=400, detail="\n".join(errors))
+        error_msg = "\n".join(errors)
+        logger.error(f"校验失败：{error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
 
 
 def process_excel_annotations(excel_path: str, annotations: List[Dict]) -> str:
@@ -390,6 +392,7 @@ async def annotate_reports(
     try:
         # 解析审核结果
         audit_data = json.loads(audit_result)
+        logger.info(f"解析 audit_result: {json.dumps(audit_data, ensure_ascii=False)[:500]}...")
 
         # 校验文件和批注匹配（支持 URL）
         files_provided = {
@@ -397,6 +400,13 @@ async def annotate_reports(
             "report": report_file is not None or report_url is not None,
             "explanation": explanation_file is not None or explanation_url is not None
         }
+
+        # 校验前打印日志
+        logger.info(f"文件提供情况：excel={files_provided['excel']}, report={files_provided['report']}, explanation={files_provided['explanation']}")
+        logger.info(f"Excel 批注数：{len(audit_data.get('annotations', {}).get('excel', []))}")
+        logger.info(f"报告批注数：{len(audit_data.get('annotations', {}).get('report', []))}")
+        logger.info(f"说明批注数：{len(audit_data.get('annotations', {}).get('explanation', []))}")
+
         validate_annotations(audit_data, files_provided)
 
         annotations = audit_data.get("annotations", {})
