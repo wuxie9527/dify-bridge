@@ -413,7 +413,8 @@ async def annotate_reports(
         result = {
             "success": True,
             "annotated_files": {},
-            "summary": {}
+            "summary": {},
+            "match_warnings": []
         }
 
         # Excel 批注处理
@@ -435,8 +436,11 @@ async def annotate_reports(
         report_warnings = []
         report_unmatched = []
         if (report_file or report_url) and annotations.get("report", []):
+            logger.info(f"开始处理 Word 报告批注，共 {len(annotations['report'])} 条")
             report_path = save_temp_file(file=report_file, file_url=report_url, suffix=".docx")
+            logger.info(f"报告文件已保存到：{report_path}")
             output_filename, warnings = process_word_annotations(report_path, annotations["report"], "报告")
+            logger.info(f"Word 报告批注处理完成，{len(warnings)} 条未匹配")
             result["annotated_files"]["report"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["report_annotations"] = len(annotations["report"])
             report_warnings = warnings
@@ -465,8 +469,11 @@ async def annotate_reports(
         explanation_warnings = []
         explanation_unmatched = []
         if (explanation_file or explanation_url) and annotations.get("explanation", []):
+            logger.info(f"开始处理 Word 说明批注，共 {len(annotations['explanation'])} 条")
             explanation_path = save_temp_file(file=explanation_file, file_url=explanation_url, suffix=".docx")
+            logger.info(f"说明文件已保存到：{explanation_path}")
             output_filename, warnings = process_word_annotations(explanation_path, annotations["explanation"], "说明")
+            logger.info(f"Word 说明批注处理完成，{len(warnings)} 条未匹配")
             result["annotated_files"]["explanation"] = f"/api/v1/report/download/{output_filename}"
             result["summary"]["explanation_annotations"] = len(annotations["explanation"])
             explanation_warnings = warnings
@@ -504,13 +511,16 @@ async def annotate_reports(
 
         return result
 
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON 解析错误：{e}")
         raise HTTPException(status_code=400, detail="audit_result 格式错误，必须是有效的 JSON 字符串")
     except httpx.HTTPError as e:
+        logger.error(f"文件下载错误：{e}")
         raise HTTPException(status_code=400, detail=f"文件下载失败：{str(e)}")
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"批注处理异常：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"批注失败：{str(e)}")
 
 
