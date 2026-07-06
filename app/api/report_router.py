@@ -107,8 +107,8 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
             errors.append("上传了评估报告 Word 文件，但 annotations.report 为空。请提供报告章节的批注内容。")
         else:
             for i, ann in enumerate(report_annotations):
-                location = ann.get("location", "")
-                if not location:
+                original_text = ann.get("original_text", "")
+                if not original_text:
                     errors.append(f"报告批注[{i}] 缺少 original_text 字段（应包含报告中的原文段落）")
                 if not ann.get("description"):
                     errors.append(f"报告批注[{i}] 缺少 description 字段")
@@ -122,8 +122,8 @@ def validate_annotations(audit_data: Dict, files_provided: Dict[str, bool]):
             errors.append("上传了评估说明 Word 文件，但 annotations.explanation 为空。请提供说明章节的批注内容。")
         else:
             for i, ann in enumerate(explanation_annotations):
-                location = ann.get("location", "")
-                if not location:
+                original_text = ann.get("original_text", "")
+                if not original_text:
                     errors.append(f"说明批注[{i}] 缺少 original_text 字段（应包含说明中的原文段落）")
                 if not ann.get("description"):
                     errors.append(f"说明批注[{i}] 缺少 description 字段")
