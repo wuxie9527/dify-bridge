@@ -104,12 +104,46 @@ class WordAnnotator:
         # 清理文本（移除空白字符）
         target_clean = ''.join(target_text.split())
 
+        # 只去除首尾的特殊字符（标点、符号、数字等），保留中间的原文内容
+        def strip_edge_special_chars(text: str) -> str:
+            """去除首尾非中文字符，保留中间原文"""
+            if not text:
+                return text
+
+            # 找到首个中文字符位置
+            start = 0
+            for i, char in enumerate(text):
+                if '一' <= char <= '鿿':  # 中文字符 Unicode 范围
+                    start = i
+                    break
+            else:
+                # 没有中文，返回原文
+                return text
+
+            # 找到末个中文字符位置
+            end = len(text)
+            for i in range(len(text) - 1, -1, -1):
+                if '一' <= text[i] <= '鿿':
+                    end = i + 1
+                    break
+
+            return text[start:end]
+
+        # 处理首尾特殊字符
+        target_stripped = strip_edge_special_chars(target_clean)
+
         for i, para in enumerate(self.doc.paragraphs):
             para_text = ''.join(para.text.split())
-            # 完全匹配或包含匹配
+
+            # 优先使用去除首尾特殊字符后的文本匹配
+            if target_stripped in para_text or para_text in target_stripped:
+                return i, True
+
+            # 回退到原始文本匹配
             if target_clean in para_text or para_text in target_clean:
                 return i, True
-            # 模糊匹配（前 50 个字符）
+
+            # 模糊匹配（前 20 个字符）
             if len(target_clean) >= 20 and target_clean[:20] in para_text:
                 return i, True
 
