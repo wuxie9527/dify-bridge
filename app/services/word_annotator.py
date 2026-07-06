@@ -71,14 +71,11 @@ class WordAnnotator:
             # 通过原文摘抄查找段落
             para_index, found = self.find_paragraph_by_text(original_text)
 
-            if found:
-                comment_text = f"{description}\n\n建议：{suggestion}"
-                self.add_comment_to_paragraph(para_index, comment_text, "审核 AI", "AI")
-                logger.info(f"✅ 找到原文段落，添加批注")
-            else:
+            # 找不到段落时跳过
+            if not found or para_index < 0:
                 warning = {
                     "annotation_index": i,
-                    "original_text": original_text,
+                    "original_text": original_text[:100] + "..." if len(original_text) > 100 else original_text,
                     "description": description,
                     "suggestion": suggestion,
                     "reason": "在文档中未找到匹配的原文段落"
@@ -86,6 +83,16 @@ class WordAnnotator:
                 warnings.append(warning)
                 self.match_warnings.append(warning)
                 logger.warning(f"❌ 未找到匹配的原文段落：{original_text[:30]}...")
+                continue
+
+            # 找到段落，添加批注
+            comment_text = f"{description}\n\n建议：{suggestion}"
+            success = self.add_comment_to_paragraph(para_index, comment_text, "审核 AI", "AI")
+
+            if success:
+                logger.info(f"✅ 找到原文段落（索引{para_index}），添加批注")
+            else:
+                logger.warning(f"⚠️ 在段落{para_index}添加批注失败")
 
         return warnings
 
@@ -105,7 +112,7 @@ class WordAnnotator:
         # 清理文本（移除空白字符）
         target_clean = ''.join(target_text.split())
 
-        # 只去除首尾的特殊字符（标点、符号、数字等），保留中间的原文内容
+        # 找到首个中文字符位置（去除首尾特殊字符）
         def strip_edge_special_chars(text: str) -> str:
             """去除首尾非中文字符，保留中间原文"""
             if not text:
@@ -133,20 +140,33 @@ class WordAnnotator:
         # 处理首尾特殊字符
         target_stripped = strip_edge_special_chars(target_clean)
 
+        # 优先匹配：去除首尾特殊字符后的文本
         for i, para in enumerate(self.doc.paragraphs):
             para_text = ''.join(para.text.split())
 
-            # 优先使用去除首尾特殊字符后的文本匹配
-            if target_stripped in para_text or para_text in target_stripped:
+            # 完全包含匹配
+            if target_stripped in para_text:
                 return i, True
 
-            # 回退到原始文本匹配
-            if target_clean in para_text or para_text in target_clean:
+            # 反向包含匹配（段落文本是目标的子集）
+            if para_text in target_stripped:
                 return i, True
 
-            # 模糊匹配（前 20 个字符）
-            if len(target_clean) >= 20 and target_clean[:20] in para_text:
-                return i, True
+        # 模糊匹配：前 30 个字符匹配
+        if len(target_clean) >= 30:
+            target_prefix = target_clean[:30]
+            for i, para in enumerate(self.doc.paragraphs):
+                para_text = ''.join(para.text.split())
+                if target_prefix in para_text:
+                    return i, True
+
+        # 短文本匹配：前 20 个字符
+        if len(target_clean) >= 20:
+            target_prefix = target_clean[:20]
+            for i, para in enumerate(self.doc.paragraphs):
+                para_text = ''.join(para.text.split())
+                if target_prefix in para_text:
+                    return i, True
 
         return -1, False
 
