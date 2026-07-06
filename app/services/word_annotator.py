@@ -59,32 +59,61 @@ class WordAnnotator:
             return False
 
     def annotate_document(self, annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """批量处理批注"""
+        """批量处理批注（使用 original_text 原文摘抄匹配）"""
         warnings = []
 
         for i, ann in enumerate(annotations):
-            location = ann.get("location", "")
+            # 使用 original_text（原文摘抄）匹配段落
+            original_text = ann.get("original_text", "")
             description = ann.get("description", "")
             suggestion = ann.get("suggestion", "")
 
-            para_index, found = self.find_paragraph_by_keyword(location)
+            # 通过原文摘抄查找段落
+            para_index, found = self.find_paragraph_by_text(original_text)
 
             if found:
                 comment_text = f"{description}\n\n建议：{suggestion}"
                 self.add_comment_to_paragraph(para_index, comment_text, "审核 AI", "AI")
-                logger.info(f"✅ 在'{location}'后添加批注")
+                logger.info(f"✅ 找到原文段落，添加批注")
             else:
                 warning = {
                     "annotation_index": i,
-                    "location": location,
+                    "original_text": original_text[:50] + "..." if len(original_text) > 50 else original_text,
                     "description": description,
-                    "reason": f"在文档中未找到关键词 '{location}'"
+                    "reason": "在文档中未找到匹配的原文段落"
                 }
                 warnings.append(warning)
                 self.match_warnings.append(warning)
-                logger.warning(f"❌ 未找到关键词 '{location}'")
+                logger.warning(f"❌ 未找到匹配的原文段落")
 
         return warnings
+
+    def find_paragraph_by_text(self, target_text: str) -> Tuple[int, bool]:
+        """
+        根据原文摘抄查找段落
+
+        Args:
+            target_text: 原文摘抄（目标文本）
+
+        Returns:
+            (段落索引，是否找到)
+        """
+        if not target_text:
+            return -1, False
+
+        # 清理文本（移除空白字符）
+        target_clean = ''.join(target_text.split())
+
+        for i, para in enumerate(self.doc.paragraphs):
+            para_text = ''.join(para.text.split())
+            # 完全匹配或包含匹配
+            if target_clean in para_text or para_text in target_clean:
+                return i, True
+            # 模糊匹配（前 50 个字符）
+            if len(target_clean) >= 20 and target_clean[:20] in para_text:
+                return i, True
+
+        return -1, False
 
     def get_match_warnings(self) -> List[Dict[str, Any]]:
         return self.match_warnings
