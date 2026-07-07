@@ -120,9 +120,9 @@ class WordAnnotator:
                 if target_cleaned in para_cleaned:
                     logger.info(f"在第{i}段找到（去除首尾特殊字符）")
                     return i, True, "去除首尾特殊字符匹配"
-                if para_cleaned in target_cleaned:
-                    logger.info(f"在第{i}段找到（去除首尾特殊字符反向）")
-                    return i, True, "去除首尾特殊字符匹配（反向）"
+
+        # 方式 3：只保留中文字符后匹配（最后的尝试）
+        target_chinese = self._keep_only_chinese(target_text)
 
         if target_chinese and len(target_chinese) >= 10:
             logger.info(f"只保留中文后：{target_chinese[:50]}...")
@@ -131,9 +131,6 @@ class WordAnnotator:
                 if target_chinese in para_chinese:
                     logger.info(f"在第{i}段找到（只保留中文）")
                     return i, True, "只保留中文匹配"
-                if para_chinese in target_chinese:
-                    logger.info(f"在第{i}段找到（只保留中文反向）")
-                    return i, True, "只保留中文匹配（反向）"
 
         logger.warning(f"未找到匹配的目标文本")
         return -1, False, "未匹配"
