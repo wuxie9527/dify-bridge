@@ -232,7 +232,7 @@ def process_word_annotations(word_path: str, annotations: List[Dict], file_type:
 
     with WordAnnotator(word_path) as annotator:
         # 在原文位置添加批注
-        warnings = annotator.annotate_document(annotations)
+        warnings = annotator.annotate_document(annotations, file_type)
 
         # 调试：打印匹配结果
         logger.info(f"Word {file_type} 批注处理完成：{len(annotations)} 条批注，{len(warnings)} 条匹配失败")

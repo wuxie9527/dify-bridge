@@ -50,8 +50,13 @@ class WordAnnotator:
             logger.error(f"添加批注失败：{e}")
             return False
 
-    def annotate_document(self, annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """批量处理批注（使用 original_text 原文摘抄匹配）"""
+    def annotate_document(self, annotations: List[Dict[str, Any]], file_type: str = "report") -> List[Dict[str, Any]]:
+        """批量处理批注（使用 original_text 原文摘抄匹配）
+
+        Args:
+            annotations: 批注列表
+            file_type: 文件类型（report=评估报告，explanation=评估说明）
+        """
         warnings = []
 
         for i, ann in enumerate(annotations):
@@ -66,7 +71,7 @@ class WordAnnotator:
             if not found or para_index < 0:
                 warning = {
                     "annotation_index": i,
-                    "file_type": "word",
+                    "file_type": file_type,  # 使用传入的 file_type
                     "original_text": original_text[:100] + "..." if len(original_text) > 100 else original_text,
                     "description": description,
                     "suggestion": suggestion,
