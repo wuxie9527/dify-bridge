@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Tuple
 import datetime
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +21,10 @@ class WordAnnotator:
         self.doc = Document(file_path)
         self.match_warnings = []
 
-    def find_paragraph_by_keyword(self, keyword: str) -> Tuple[int, bool]:
-        """根据关键词查找段落索引"""
-        for i, para in enumerate(self.doc.paragraphs):
-            if keyword in para.text:
-                return i, True
-        return -1, False
-
     def add_comment_to_paragraph(self, para_index: int, comment_text: str,
                                   author: str = "审核 AI", initials: str = "SHR"):
         """
         在指定段落添加原生批注
-
-        使用 python-docx-2023 的 add_comment() 方法
         """
         if para_index < 0 or para_index >= len(self.doc.paragraphs):
             logger.warning(f"段落索引超出范围：{para_index}")
@@ -68,13 +60,14 @@ class WordAnnotator:
             description = ann.get("description", "")
             suggestion = ann.get("suggestion", "")
 
-            # 通过原文摘抄查找段落
-            para_index, found = self.find_paragraph_by_text(original_text)
+            # 通过原文摘抄查找段落（严格模式）
+            para_index, found, match_type = self.find_paragraph_by_text(original_text)
 
-            # 找不到段落时跳过
+            # 找不到段落时记录到失败集合
             if not found or para_index < 0:
                 warning = {
                     "annotation_index": i,
+                    "file_type": "word",
                     "original_text": original_text[:100] + "..." if len(original_text) > 100 else original_text,
                     "description": description,
                     "suggestion": suggestion,
@@ -82,7 +75,7 @@ class WordAnnotator:
                 }
                 warnings.append(warning)
                 self.match_warnings.append(warning)
-                logger.warning(f"❌ 未找到匹配的原文段落：{original_text[:30]}...")
+                logger.warning(f"❌ 未找到匹配的原文段落：{original_text[:50]}...")
                 continue
 
             # 找到段落，添加批注
@@ -90,85 +83,95 @@ class WordAnnotator:
             success = self.add_comment_to_paragraph(para_index, comment_text, "审核 AI", "AI")
 
             if success:
-                logger.info(f"✅ 找到原文段落（索引{para_index}），添加批注")
+                logger.info(f"✅ 找到原文段落（索引{para_index}，匹配方式：{match_type}），添加批注")
             else:
                 logger.warning(f"⚠️ 在段落{para_index}添加批注失败")
 
         return warnings
 
-    def find_paragraph_by_text(self, target_text: str) -> Tuple[int, bool]:
+    def find_paragraph_by_text(self, target_text: str) -> Tuple[int, bool, str]:
         """
-        根据原文摘抄查找段落
+        根据原文摘抄查找段落（先严格匹配，失败后去除首尾特殊字符重试）
 
         Args:
             target_text: 原文摘抄（目标文本）
 
         Returns:
-            (段落索引，是否找到)
+            (段落索引，是否找到，匹配方式)
         """
         if not target_text:
-            return -1, False
+            return -1, False, "空文本"
 
-        # 清理文本（移除空白字符）
-        target_clean = ''.join(target_text.split())
-
-        # 找到首个中文字符位置（去除首尾特殊字符）
-        def strip_edge_special_chars(text: str) -> str:
-            """去除首尾非中文字符，保留中间原文"""
-            if not text:
-                return text
-
-            # 找到首个中文字符位置
-            start = 0
-            for i, char in enumerate(text):
-                if '一' <= char <= '鿿':  # 中文字符 Unicode 范围
-                    start = i
-                    break
-            else:
-                # 没有中文，返回原文
-                return text
-
-            # 找到末个中文字符位置
-            end = len(text)
-            for i in range(len(text) - 1, -1, -1):
-                if '一' <= text[i] <= '鿿':
-                    end = i + 1
-                    break
-
-            return text[start:end]
-
-        # 处理首尾特殊字符
-        target_stripped = strip_edge_special_chars(target_clean)
-
-        # 优先匹配：去除首尾特殊字符后的文本
+        # 方式 1：严格匹配（原文直接匹配）
         for i, para in enumerate(self.doc.paragraphs):
-            para_text = ''.join(para.text.split())
+            if target_text.strip() in para.text:
+                return i, True, "严格匹配"
+            if para.text.strip() in target_text:
+                return i, True, "严格匹配（反向）"
 
-            # 完全包含匹配
-            if target_stripped in para_text:
-                return i, True
+        # 方式 2：去除首尾特殊字符后匹配
+        target_cleaned = self._strip_special_chars(target_text)
 
-            # 反向包含匹配（段落文本是目标的子集）
-            if para_text in target_stripped:
-                return i, True
-
-        # 模糊匹配：前 30 个字符匹配
-        if len(target_clean) >= 30:
-            target_prefix = target_clean[:30]
+        if target_cleaned != target_text:
             for i, para in enumerate(self.doc.paragraphs):
-                para_text = ''.join(para.text.split())
-                if target_prefix in para_text:
-                    return i, True
+                para_cleaned = self._strip_special_chars(para.text)
+                if target_cleaned in para_cleaned:
+                    return i, True, "去除首尾特殊字符匹配"
+                if para_cleaned in target_cleaned:
+                    return i, True, "去除首尾特殊字符匹配（反向）"
 
-        # 短文本匹配：前 20 个字符
-        if len(target_clean) >= 20:
-            target_prefix = target_clean[:20]
+        # 方式 3：只保留中文字符后匹配（最后的尝试）
+        target_chinese = self._keep_only_chinese(target_text)
+
+        if target_chinese and len(target_chinese) >= 10:
             for i, para in enumerate(self.doc.paragraphs):
-                para_text = ''.join(para.text.split())
-                if target_prefix in para_text:
-                    return i, True
+                para_chinese = self._keep_only_chinese(para.text)
+                if target_chinese in para_chinese:
+                    return i, True, "只保留中文匹配"
+                if para_chinese in target_chinese:
+                    return i, True, "只保留中文匹配（反向）"
 
-        return -1, False
+        return -1, False, "未匹配"
+
+    def _strip_special_chars(self, text: str) -> str:
+        """
+        去除首尾特殊字符（标点、符号、空白等），保留中间核心内容
+        """
+        if not text:
+            return text
+
+        # 移除首尾空白
+        text = text.strip()
+
+        # 找到首个中文字符或字母数字的位置
+        start = 0
+        for i, char in enumerate(text):
+            if '一' <= char <= '鿿' or char.isalnum():
+                start = i
+                break
+
+        # 找到末个中文字符或字母数字的位置
+        end = len(text)
+        for i in range(len(text) - 1, -1, -1):
+            if '一' <= text[i] <= '鿿' or text[i].isalnum():
+                end = i + 1
+                break
+
+        return text[start:end]
+
+    def _keep_only_chinese(self, text: str) -> str:
+        """
+        只保留中文字符和字母数字，移除标点符号
+        """
+        if not text:
+            return text
+
+        result = []
+        for char in text:
+            if '一' <= char <= '鿿' or char.isalnum():
+                result.append(char)
+
+        return ''.join(result)
 
     def get_match_warnings(self) -> List[Dict[str, Any]]:
         return self.match_warnings
