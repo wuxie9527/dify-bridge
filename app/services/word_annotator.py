@@ -109,9 +109,6 @@ class WordAnnotator:
             if target_text.strip() in para.text:
                 logger.info(f"在第{i}段找到（严格匹配）")
                 return i, True, "严格匹配"
-            if para.text.strip() in target_text:
-                logger.info(f"在第{i}段找到（严格匹配反向）")
-                return i, True, "严格匹配（反向）"
 
         # 方式 2：去除首尾特殊字符后匹配
         target_cleaned = self._strip_special_chars(target_text)
@@ -126,9 +123,6 @@ class WordAnnotator:
                 if para_cleaned in target_cleaned:
                     logger.info(f"在第{i}段找到（去除首尾特殊字符反向）")
                     return i, True, "去除首尾特殊字符匹配（反向）"
-
-        # 方式 3：只保留中文字符后匹配（最后的尝试）
-        target_chinese = self._keep_only_chinese(target_text)
 
         if target_chinese and len(target_chinese) >= 10:
             logger.info(f"只保留中文后：{target_chinese[:50]}...")
