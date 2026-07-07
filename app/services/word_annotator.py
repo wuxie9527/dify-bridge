@@ -55,12 +55,11 @@ class WordAnnotator:
         warnings = []
 
         for i, ann in enumerate(annotations):
-            # 使用 original_text（原文摘抄）匹配段落
             original_text = ann.get("original_text", "")
             description = ann.get("description", "")
             suggestion = ann.get("suggestion", "")
 
-            # 通过原文摘抄查找段落（严格模式）
+            # 通过原文摘抄查找段落
             para_index, found, match_type = self.find_paragraph_by_text(original_text)
 
             # 找不到段落时记录到失败集合
@@ -91,7 +90,12 @@ class WordAnnotator:
 
     def find_paragraph_by_text(self, target_text: str) -> Tuple[int, bool, str]:
         """
-        根据原文摘抄查找段落（先严格匹配，失败后去除首尾特殊字符重试）
+        根据原文摘抄查找段落
+
+        匹配顺序：
+        1. 严格匹配（原文直接匹配）
+        2. 去除首尾特殊字符后匹配（只去除首尾，保留中间原文）
+        3. 按省略号"..."分段匹配（取任意一段长度>=10 的片段）
 
         Args:
             target_text: 原文摘抄（目标文本）
@@ -104,13 +108,13 @@ class WordAnnotator:
 
         logger.info(f"开始匹配目标文本：{target_text[:50]}...")
 
-        # 方式 1：严格匹配（原文直接匹配）
+        # ========== 方式 1：严格匹配 ==========
         for i, para in enumerate(self.doc.paragraphs):
             if target_text.strip() in para.text:
                 logger.info(f"在第{i}段找到（严格匹配）")
                 return i, True, "严格匹配"
 
-        # 方式 2：去除首尾特殊字符后匹配
+        # ========== 方式 2：去除首尾特殊字符 ==========
         target_cleaned = self._strip_special_chars(target_text)
 
         if target_cleaned != target_text:
@@ -119,18 +123,21 @@ class WordAnnotator:
                 para_cleaned = self._strip_special_chars(para.text)
                 if target_cleaned in para_cleaned:
                     logger.info(f"在第{i}段找到（去除首尾特殊字符）")
-                    return i, True, "去除首尾特殊字符匹配"
+                    return i, True, "去除首尾特殊字符"
 
-        # 方式 3：只保留中文字符后匹配（最后的尝试）
-        target_chinese = self._keep_only_chinese(target_text)
+        # ========== 方式 3：按省略号分段匹配 ==========
+        if "..." in target_text:
+            fragments = target_text.split("...")
+            logger.info(f"检测省略号：切分为{len(fragments)}段")
 
-        if target_chinese and len(target_chinese) >= 10:
-            logger.info(f"只保留中文后：{target_chinese[:50]}...")
-            for i, para in enumerate(self.doc.paragraphs):
-                para_chinese = self._keep_only_chinese(para.text)
-                if target_chinese in para_chinese:
-                    logger.info(f"在第{i}段找到（只保留中文）")
-                    return i, True, "只保留中文匹配"
+            for idx, fragment in enumerate(fragments):
+                fragment = fragment.strip()
+                if len(fragment) >= 10:  # 片段长度>=10 才匹配
+                    logger.info(f"尝试片段{idx+1}：'{fragment[:30]}...'")
+                    for i, para in enumerate(self.doc.paragraphs):
+                        if fragment in para.text:
+                            logger.info(f"在第{i}段找到（分段匹配，片段{idx+1}）")
+                            return i, True, "分段匹配"
 
         logger.warning(f"未找到匹配的目标文本")
         return -1, False, "未匹配"
@@ -138,6 +145,14 @@ class WordAnnotator:
     def _strip_special_chars(self, text: str) -> str:
         """
         去除首尾特殊字符（标点、符号、空白等），保留中间核心内容
+
+        只去除首尾，不动中间内容！
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            去除首尾特殊字符后的文本
         """
         if not text:
             return text
@@ -164,6 +179,12 @@ class WordAnnotator:
     def _keep_only_chinese(self, text: str) -> str:
         """
         只保留中文字符和字母数字，移除标点符号
+
+        Args:
+            text: 原始文本
+
+        Returns:
+            只保留中文和字母数字后的文本
         """
         if not text:
             return text
@@ -180,7 +201,9 @@ class WordAnnotator:
 
     def save(self, output_path: str):
         """保存文档"""
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         self.doc.save(output_path)
         logger.info(f"保存文件到：{output_path}")
 

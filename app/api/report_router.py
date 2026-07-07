@@ -237,7 +237,8 @@ def process_word_annotations(word_path: str, annotations: List[Dict], file_type:
         # 调试：打印匹配结果
         logger.info(f"Word {file_type} 批注处理完成：{len(annotations)} 条批注，{len(warnings)} 条匹配失败")
         for w in warnings:
-            logger.warning(f"  - {w['location']}: {w['reason']}")
+            original_text = w.get("original_text", "")[:50] + "..." if len(w.get("original_text", "")) > 50 else w.get("original_text", "")
+            logger.warning(f"  - {original_text}: {w.get('reason', '')}")
 
         # 不再添加末尾汇总
         annotator.save(output_path)
