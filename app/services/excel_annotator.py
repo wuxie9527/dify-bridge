@@ -73,25 +73,33 @@ class ExcelAnnotator:
             sheet_name: Sheet 名称
             cell_range: 单元格范围，如 "C3" 或 "C3:C10"
             color: 填充颜色（16 进制 RGB），默认黄色
+
+        Returns:
+            (成功标志，错误信息)
         """
         if sheet_name not in self.wb.sheetnames:
-            logger.warning(f"Sheet 不存在：{sheet_name}")
-            return
+            logger.warning(f"Sheet 不存在，无法高亮：{sheet_name}")
+            return False, f"Sheet 不存在：{sheet_name}"
 
         sheet = self.wb[sheet_name]
         fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
 
-        # 处理单个单元格或范围
-        if ":" in cell_range:
-            # 范围
-            for row in sheet[cell_range]:
-                for cell in row:
-                    cell.fill = fill
-        else:
-            # 单个单元格
-            sheet[cell_range].fill = fill
+        try:
+            # 处理单个单元格或范围
+            if ":" in cell_range:
+                # 范围
+                for row in sheet[cell_range]:
+                    for cell in row:
+                        cell.fill = fill
+            else:
+                # 单个单元格
+                sheet[cell_range].fill = fill
 
-        logger.info(f"高亮 {sheet_name}!{cell_range}")
+            logger.info(f"高亮 {sheet_name}!{cell_range}")
+            return True, None
+        except Exception as e:
+            logger.warning(f"高亮单元格失败：{cell_range} - {e}")
+            return False, str(e)
 
     def create_audit_sheet(self, issues: List[Dict[str, Any]]):
         """

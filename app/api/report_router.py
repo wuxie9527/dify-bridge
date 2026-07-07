@@ -209,7 +209,9 @@ def process_excel_annotations(excel_path: str, annotations: List[Dict]) -> Tuple
                 continue
 
             if issue.get("severity") == "高":
-                annotator.highlight_cell(sheet_name, cell, "FFFF00")
+                success, error = annotator.highlight_cell(sheet_name, cell, "FFFF00")
+                if not success:
+                    logger.warning(f"高亮单元格失败 {sheet_name}!{cell}: {error}")
 
         annotator.create_audit_sheet(annotations)
         annotator.save(output_path)
