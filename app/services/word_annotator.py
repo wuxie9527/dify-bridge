@@ -102,35 +102,46 @@ class WordAnnotator:
         if not target_text:
             return -1, False, "空文本"
 
+        logger.info(f"开始匹配目标文本：{target_text[:50]}...")
+
         # 方式 1：严格匹配（原文直接匹配）
         for i, para in enumerate(self.doc.paragraphs):
             if target_text.strip() in para.text:
+                logger.info(f"在第{i}段找到（严格匹配）")
                 return i, True, "严格匹配"
             if para.text.strip() in target_text:
+                logger.info(f"在第{i}段找到（严格匹配反向）")
                 return i, True, "严格匹配（反向）"
 
         # 方式 2：去除首尾特殊字符后匹配
         target_cleaned = self._strip_special_chars(target_text)
 
         if target_cleaned != target_text:
+            logger.info(f"去除首尾特殊字符后：{target_cleaned[:50]}...")
             for i, para in enumerate(self.doc.paragraphs):
                 para_cleaned = self._strip_special_chars(para.text)
                 if target_cleaned in para_cleaned:
+                    logger.info(f"在第{i}段找到（去除首尾特殊字符）")
                     return i, True, "去除首尾特殊字符匹配"
                 if para_cleaned in target_cleaned:
+                    logger.info(f"在第{i}段找到（去除首尾特殊字符反向）")
                     return i, True, "去除首尾特殊字符匹配（反向）"
 
         # 方式 3：只保留中文字符后匹配（最后的尝试）
         target_chinese = self._keep_only_chinese(target_text)
 
         if target_chinese and len(target_chinese) >= 10:
+            logger.info(f"只保留中文后：{target_chinese[:50]}...")
             for i, para in enumerate(self.doc.paragraphs):
                 para_chinese = self._keep_only_chinese(para.text)
                 if target_chinese in para_chinese:
+                    logger.info(f"在第{i}段找到（只保留中文）")
                     return i, True, "只保留中文匹配"
                 if para_chinese in target_chinese:
+                    logger.info(f"在第{i}段找到（只保留中文反向）")
                     return i, True, "只保留中文匹配（反向）"
 
+        logger.warning(f"未找到匹配的目标文本")
         return -1, False, "未匹配"
 
     def _strip_special_chars(self, text: str) -> str:
