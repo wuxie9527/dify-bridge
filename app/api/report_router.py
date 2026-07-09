@@ -14,8 +14,10 @@ import logging
 import httpx
 import tempfile
 import uuid
+import subprocess
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from docx import Document
 
 logger = logging.getLogger(__name__)
