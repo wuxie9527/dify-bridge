@@ -335,24 +335,22 @@ async def extract_word_text(
 
         # 在线程池中同步写入文件
         def write_file(path, content):
-            with open(path, "wb") as f:
+            # 同步写入并显式关闭
+            f = open(path, "wb")
+            try:
                 f.write(content)
-            # 获取文件大小验证
-            size = os.path.getsize(path)
-            # 显式关闭文件句柄（重要！）
-            import gc
-            gc.collect()
-            return size
+                f.flush()
+                os.fsync(f.fileno())  # 强制写入磁盘
+            finally:
+                f.close()  # 显式关闭文件句柄
+            return os.path.getsize(path)
 
+        # 在线程池中同步写入（确保完成）
         file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
 
-        # 等待文件句柄完全释放
-        import asyncio
-        await asyncio.sleep(0.2)
-
-        # 验证文件是否写入成功
-        if not os.path.exists(temp_path) or file_size == 0:
-            raise IOError(f"文件写入失败：{temp_path}")
+        # 再次验证文件存在
+        if not os.path.exists(temp_path):
+            raise IOError(f"文件写入后立即消失：{temp_path}")
 
         logger.info(f"文件写入成功：{temp_path} ({file_size} 字节)")
 
