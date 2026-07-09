@@ -335,38 +335,26 @@ async def extract_word_text(
 
         logger.info(f"下载完成，大小：{len(file_content)} 字节")
 
-        # 在线程池中同步写入文件（阻塞直到完成）
+        # 文件写入和检查（保留用于验证）
         def write_file(path, content):
-            # 同步写入并显式关闭
             f = open(path, "wb")
             try:
                 f.write(content)
                 f.flush()
-                os.fsync(f.fileno())  # 强制写入磁盘
+                os.fsync(f.fileno())
             finally:
-                f.close()  # 显式关闭文件句柄
+                f.close()
+            return os.path.getsize(path)
 
-            # 验证文件存在且大小正确
-            if not os.path.exists(path):
-                raise IOError(f"文件写入后消失：{path}")
-            size = os.path.getsize(path)
-            if size != len(content):
-                raise IOError(f"文件大小不匹配：期望 {len(content)}, 实际 {size}")
-            return size
-
-        # 在线程池中同步写入（阻塞直到完成）
         file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
-
-        # 等待 0.5 秒确保文件句柄完全释放（大文件需要更长时间）
         await asyncio.sleep(0.5)
 
-        # 再次验证文件存在
         if not os.path.exists(temp_path):
             raise IOError(f"文件写入后立即消失：{temp_path}")
 
         logger.info(f"文件写入成功：{temp_path} ({file_size} 字节)")
 
-        # 添加检查步骤：验证文件可访问
+        # 文件可访问性检查
         try:
             with open(temp_path, "rb") as f:
                 check_size = os.path.getsize(temp_path)
@@ -376,9 +364,10 @@ async def extract_word_text(
             raise
 
         try:
-            # 提取文本和表格
-            logger.info(f"开始读取 Word 文件：{temp_path}")
-            doc = Document(temp_path)
+            # 从内存读取 Word 文件（避免文件系统锁定问题）
+            logger.info("开始从内存读取 Word 文件...")
+            from io import BytesIO
+            doc = Document(BytesIO(file_content))
             logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
 
             paragraphs = []
