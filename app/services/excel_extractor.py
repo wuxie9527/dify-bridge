@@ -36,7 +36,9 @@ class ExcelExtractor:
         result = {
             "file_info": {
                 "sheet_names": self.wb.sheetnames,
+                "visible_sheets": [name for name in self.wb.sheetnames if self.wb[name].sheet_state == 'visible'],
                 "sheet_count": len(self.wb.sheetnames),
+                "visible_sheet_count": len([name for name in self.wb.sheetnames if self.wb[name].sheet_state == 'visible']),
                 "extract_time": datetime.now().isoformat()
             },
             "sheets": {},
@@ -44,7 +46,13 @@ class ExcelExtractor:
             "summary": {}
         }
 
+        # 只遍历可见的 Sheet
         for sheet_name in self.wb.sheetnames:
+            # 跳过隐藏的 Sheet
+            if self.wb[sheet_name].sheet_state != 'visible':
+                logger.info(f"跳过隐藏 Sheet: {sheet_name}")
+                continue
+
             logger.info(f"提取 Sheet: {sheet_name}")
             sheet = self.wb[sheet_name]
 
@@ -58,7 +66,7 @@ class ExcelExtractor:
 
             result["summary"][sheet_name] = self._extract_summary(sheet)
 
-        logger.info(f"精简提取完成：{len(result['sheets'])} 个 Sheet")
+        logger.info(f"精简提取完成：{len(result['sheets'])} 个可见 Sheet")
         return result
 
     def extract_all(self) -> Dict[str, Any]:
@@ -71,7 +79,9 @@ class ExcelExtractor:
             "file_info": {
                 "path": self.file_path,
                 "sheet_names": self.wb.sheetnames,
+                "visible_sheets": [name for name in self.wb.sheetnames if self.wb[name].sheet_state == 'visible'],
                 "sheet_count": len(self.wb.sheetnames),
+                "visible_sheet_count": len([name for name in self.wb.sheetnames if self.wb[name].sheet_state == 'visible']),
                 "extract_time": datetime.now().isoformat()
             },
             "sheets": {},
@@ -80,7 +90,13 @@ class ExcelExtractor:
             "simple_checks": []
         }
 
+        # 只遍历可见的 Sheet
         for sheet_name in self.wb.sheetnames:
+            # 跳过隐藏的 Sheet
+            if self.wb[sheet_name].sheet_state != 'visible':
+                logger.info(f"跳过隐藏 Sheet: {sheet_name}")
+                continue
+
             sheet = self.wb[sheet_name]
             result["sheets"][sheet_name] = self._extract_sheet_data_full(sheet)
             result["formulas"][sheet_name] = self._extract_formulas_full(sheet)
