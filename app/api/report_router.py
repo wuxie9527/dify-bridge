@@ -307,8 +307,9 @@ async def extract_word_text(
     """
     提取 Word 文档文本内容（支持 URL 下载）
 
-    直接从内存读取，不保存临时文件
+    支持 .docx 和 .doc 格式（.doc 需要 LibreOffice 转换）
     """
+    temp_path = None
     try:
         # 下载文件到内存
         logger.info(f"开始下载 Word 文件：{file_url[:80]}...")
@@ -319,7 +320,51 @@ async def extract_word_text(
 
         logger.info(f"下载完成，大小：{len(file_content)} 字节")
 
-        # 直接从内存读取 Word（避免文件系统锁定问题）
+        # 检测文件格式
+        # .docx 以 PK 开头（ZIP 格式），.doc 以 D0 CF 开头（OLE 格式）
+        is_docx = file_content[:2] == b'PK'
+        is_doc = file_content[:2] == b'\xD0\xCF'
+
+        if not is_docx and not is_doc:
+            raise ValueError(f"不支持的文件格式（文件头：{file_content[:4]}）")
+
+        # 如果是 .doc 格式，需要转换为 .docx
+        if is_doc:
+            logger.info("检测到 .doc 格式，正在转换为 .docx...")
+            import subprocess
+            import uuid
+
+            # 保存临时 .doc 文件
+            unique_id = uuid.uuid4().hex[:12]
+            temp_doc = Path(TEMP_DIR) / f"doc_{unique_id}.doc"
+            temp_docx = Path(TEMP_DIR) / f"doc_{unique_id}.docx"
+
+            with open(temp_doc, "wb") as f:
+                f.write(file_content)
+
+            # 用 LibreOffice 转换
+            result = subprocess.run([
+                'libreoffice', '--headless', '--convert-to', 'docx',
+                str(temp_doc), '--outdir', str(TEMP_DIR)
+            ], capture_output=True, text=True, timeout=60)
+
+            if result.returncode != 0:
+                raise ValueError(f"LibreOffice 转换失败：{result.stderr}")
+
+            # 读取转换后的 .docx
+            with open(temp_docx, "rb") as f:
+                file_content = f.read()
+
+            logger.info(f"转换完成，大小：{len(file_content)} 字节")
+
+            # 清理临时文件
+            try:
+                temp_doc.unlink()
+                temp_docx.unlink()
+            except:
+                pass
+
+        # 从内存读取 .docx 文件
         from io import BytesIO
         logger.info("开始从内存读取 Word 文件...")
         doc = Document(BytesIO(file_content))
