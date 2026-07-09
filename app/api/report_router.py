@@ -325,25 +325,23 @@ async def extract_word_text(
         doc = Document(BytesIO(file_content))
         logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
 
-            paragraphs = []
-            tables_markdown = []
+        paragraphs = []
+        tables_markdown = []
 
-            # 提取段落（跳过表格内的段落，避免重复）
-            logger.info("开始提取段落...")
-            in_table = False
-            for p in doc.paragraphs:
-                # 检查段落是否在表格内
-                if p._element.xpath('./ancestor::w:tbl'):
-                    continue  # 跳过表格内的段落
+        # 提取段落（跳过表格内的段落，避免重复）
+        logger.info("开始提取段落...")
+        for p in doc.paragraphs:
+            if p._element.xpath('./ancestor::w:tbl'):
+                continue
 
-                text = p.text.strip()
-                if text:
-                    paragraphs.append(text)
+            text = p.text.strip()
+            if text:
+                paragraphs.append(text)
 
-            logger.info(f"段落提取完成：{len(paragraphs)} 个段落")
+        logger.info(f"段落提取完成：{len(paragraphs)} 个段落")
 
-            # 提取表格（转为 Markdown）
-            logger.info("开始提取表格...")
+        # 提取表格（转为 Markdown）
+        logger.info("开始提取表格...")
             for i, table in enumerate(doc.tables):
                 md_rows = []
                 for row_idx, row in enumerate(table.rows):
