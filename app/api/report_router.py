@@ -307,14 +307,10 @@ async def extract_word_text(
     """
     提取 Word 文档文本内容（支持 URL 下载）
 
-    适用于：
-    - 评估报告.docx
-    - 评估说明.docx
-
-    返回段落列表、完整文本和表格（Markdown 格式）
+    直接从内存读取，不保存临时文件
     """
     try:
-        # 下载文件
+        # 下载文件到内存
         logger.info(f"开始下载 Word 文件：{file_url[:80]}...")
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(file_url)
@@ -323,51 +319,11 @@ async def extract_word_text(
 
         logger.info(f"下载完成，大小：{len(file_content)} 字节")
 
-        # 保存到临时文件（在同步线程池中执行，避免异步 IO 问题）
-        import asyncio
-        loop = asyncio.get_event_loop()
-
-        unique_id = uuid.uuid4().hex[:12]
-        temp_path = os.path.join(TEMP_DIR, f"word_{unique_id}_download.docx")
-
-        # 确保目录存在
-        os.makedirs(TEMP_DIR, exist_ok=True)
-
-        logger.info(f"下载完成，大小：{len(file_content)} 字节")
-
-        # 文件写入和检查
-        def write_file(path, content):
-            f = open(path, "wb")
-            try:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-            finally:
-                f.close()
-            return os.path.getsize(path)
-
-        file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
-        await asyncio.sleep(0.5)
-
-        if not os.path.exists(temp_path):
-            raise IOError(f"文件写入后立即消失：{temp_path}")
-
-        logger.info(f"文件写入成功：{temp_path} ({file_size} 字节)")
-
-        # 文件可访问性检查
-        try:
-            with open(temp_path, "rb") as f:
-                check_size = os.path.getsize(temp_path)
-            logger.info(f"文件检查成功：存在且可读（{check_size} 字节）")
-        except Exception as e:
-            logger.error(f"文件检查失败：{e}")
-            raise
-
-        try:
-            # 从文件读取 Word
-            logger.info(f"开始读取 Word 文件：{temp_path}")
-            doc = Document(temp_path)
-            logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
+        # 直接从内存读取 Word（避免文件系统锁定问题）
+        from io import BytesIO
+        logger.info("开始从内存读取 Word 文件...")
+        doc = Document(BytesIO(file_content))
+        logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
 
             paragraphs = []
             tables_markdown = []
@@ -423,31 +379,13 @@ async def extract_word_text(
                 "table_count": len(tables_markdown),
                 "message": "Word 文本提取完成"
             }
-            logger.info("Word 提取成功")
 
-        except Exception as e:
-            # 确保清理临时文件
-            logger.error(f"Word 提取失败：{e}", exc_info=True)
-            if os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                    logger.info(f"临时文件已清理：{temp_path}")
-                except Exception as clean_err:
-                    logger.warning(f"清理临时文件失败：{clean_err}")
-            raise e
-
-        # 清理临时文件（在 return 之前）
-        if os.path.exists(temp_path):
-            try:
-                os.unlink(temp_path)
-            except:
-                pass
-
-        return result
+            return result
 
     except httpx.HTTPError as e:
-        raise HTTPException(status_code=400, detail=f"URL 下载失败：{str(e)}")
+        raise HTTPException(status_code=400, detail=f"下载失败：{str(e)}")
     except Exception as e:
+        logger.error(f"Word 提取失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Word 提取失败：{str(e)}")
 
 
