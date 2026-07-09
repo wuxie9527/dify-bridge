@@ -342,31 +342,31 @@ async def extract_word_text(
 
         # 提取表格（转为 Markdown）
         logger.info("开始提取表格...")
-            for i, table in enumerate(doc.tables):
-                md_rows = []
-                for row_idx, row in enumerate(table.rows):
-                    cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
-                    md_row = "| " + " | ".join(cells) + " |"
-                    md_rows.append(md_row)
+        for i, table in enumerate(doc.tables):
+            md_rows = []
+            for row_idx, row in enumerate(table.rows):
+                cells = [cell.text.strip().replace("|", "\\|") for cell in row.cells]
+                md_row = "| " + " | ".join(cells) + " |"
+                md_rows.append(md_row)
 
-                    # 在第一行后添加表头分隔线
-                    if row_idx == 0:
-                        separator = "|" + "|".join(["---"] * len(cells)) + "|"
-                        md_rows.append(separator)
+                # 在第一行后添加表头分隔线
+                if row_idx == 0:
+                    separator = "|" + "|".join(["---"] * len(cells)) + "|"
+                    md_rows.append(separator)
 
-                tables_markdown.append({
-                    "table_index": i,
-                    "markdown": "\n".join(md_rows),
-                    "row_count": len(table.rows),
-                    "col_count": len(table.columns)
-                })
+            tables_markdown.append({
+                "table_index": i,
+                "markdown": "\n".join(md_rows),
+                "row_count": len(table.rows),
+                "col_count": len(table.columns)
+            })
 
-            logger.info(f"表格提取完成：{len(tables_markdown)} 个表格")
+        logger.info(f"表格提取完成：{len(tables_markdown)} 个表格")
 
-            # 构建完整内容（在段落中插入表格标记）
-            content_parts = paragraphs.copy()
-            for table_info in tables_markdown:
-                content_parts.append(f"\n[表格 {table_info['table_index']+1} 开始]\n{table_info['markdown']}\n[表格结束]\n")
+        # 构建完整内容（在段落中插入表格标记）
+        content_parts = paragraphs.copy()
+        for table_info in tables_markdown:
+            content_parts.append(f"\n[表格 {table_info['table_index']+1} 开始]\n{table_info['markdown']}\n[表格结束]\n")
 
             result = {
                 "success": True,
