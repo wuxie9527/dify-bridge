@@ -337,10 +337,18 @@ async def extract_word_text(
         def write_file(path, content):
             with open(path, "wb") as f:
                 f.write(content)
-                f.flush()
-            return os.path.getsize(path)
+            # 获取文件大小验证
+            size = os.path.getsize(path)
+            # 显式关闭文件句柄（重要！）
+            import gc
+            gc.collect()
+            return size
 
         file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
+
+        # 等待文件句柄完全释放
+        import asyncio
+        await asyncio.sleep(0.2)
 
         # 验证文件是否写入成功
         if not os.path.exists(temp_path) or file_size == 0:
