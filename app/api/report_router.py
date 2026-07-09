@@ -65,8 +65,52 @@ def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = No
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(file_url)
             resp.raise_for_status()
+            file_content = resp.content
+
+        # 检测文件格式
+        is_doc = file_content[:2] == b'\xD0\xCF'  # .doc 格式
+        is_docx = file_content[:2] == b'PK'  # .docx 格式
+
+        if is_doc:
+            # .doc 格式需要转换
+            logger.info("检测到 .doc 格式，正在转换...")
+            temp_doc = Path(file_path.replace(suffix, ".doc"))
+            temp_docx = Path(file_path)
+
+            try:
+                # 保存临时 .doc
+                with open(temp_doc, "wb") as f:
+                    f.write(file_content)
+
+                # LibreOffice 转换
+                result = subprocess.run([
+                    'libreoffice', '--headless', '--convert-to', 'docx',
+                    str(temp_doc), '--outdir', str(TEMP_DIR)
+                ], capture_output=True, text=True, timeout=60)
+
+                if result.returncode != 0:
+                    raise ValueError(f"LibreOffice 转换失败：{result.stderr}")
+
+                logger.info(f".doc 转换完成：{file_path}")
+            finally:
+                # 清理临时 .doc
+                try:
+                    if temp_doc.exists():
+                        temp_doc.unlink()
+                except:
+                    pass
+
+            # 确保转换后的文件完全写入
+            with open(file_path, "ab") as f:  # 追加模式触发 fsync
+                f.flush()
+                os.fsync(f.fileno())
+        else:
+            # .docx 格式直接保存
             with open(file_path, "wb") as f:
-                f.write(resp.content)
+                f.write(file_content)
+                f.flush()
+                os.fsync(f.fileno())
+
         return file_path
 
     else:
