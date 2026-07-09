@@ -314,28 +314,39 @@ async def extract_word_text(
     返回段落列表、完整文本和表格（Markdown 格式）
     """
     try:
-        # 下载文件（增加超时）
+        # 下载文件
+        logger.info(f"开始下载 Word 文件：{file_url[:80]}...")
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(file_url)
             resp.raise_for_status()
             file_content = resp.content
 
-        # 保存到临时文件（使用 UUID 避免并发冲突）
+        logger.info(f"下载完成，大小：{len(file_content)} 字节")
+
+        # 保存到临时文件（在同步线程池中执行，避免异步 IO 问题）
+        import asyncio
+        loop = asyncio.get_event_loop()
+
         unique_id = uuid.uuid4().hex[:12]
         temp_path = os.path.join(TEMP_DIR, f"word_{unique_id}_download.docx")
 
         # 确保目录存在
         os.makedirs(TEMP_DIR, exist_ok=True)
 
-        # 写入文件
-        with open(temp_path, "wb") as f:
-            f.write(file_content)
+        # 在线程池中同步写入文件
+        def write_file(path, content):
+            with open(path, "wb") as f:
+                f.write(content)
+                f.flush()
+            return os.path.getsize(path)
+
+        file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
 
         # 验证文件是否写入成功
-        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+        if not os.path.exists(temp_path) or file_size == 0:
             raise IOError(f"文件写入失败：{temp_path}")
 
-        logger.info(f"文件下载成功：{temp_path} ({os.path.getsize(temp_path)} 字节)")
+        logger.info(f"文件写入成功：{temp_path} ({file_size} 字节)")
 
         try:
             # 提取文本和表格
