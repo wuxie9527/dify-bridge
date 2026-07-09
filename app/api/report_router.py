@@ -313,8 +313,8 @@ async def extract_word_text(
     返回段落列表、完整文本和表格（Markdown 格式）
     """
     try:
-        # 下载文件
-        async with httpx.AsyncClient() as client:
+        # 下载文件（增加超时）
+        async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.get(file_url)
             resp.raise_for_status()
             file_content = resp.content
