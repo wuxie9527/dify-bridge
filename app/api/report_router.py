@@ -13,6 +13,7 @@ import json
 import logging
 import httpx
 import tempfile
+import uuid
 from datetime import datetime
 from io import BytesIO
 from docx import Document
@@ -319,9 +320,9 @@ async def extract_word_text(
             resp.raise_for_status()
             file_content = resp.content
 
-        # 保存到临时文件
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_path = os.path.join(TEMP_DIR, f"{timestamp}_download.docx")
+        # 保存到临时文件（使用 UUID 避免并发冲突）
+        unique_id = uuid.uuid4().hex[:12]
+        temp_path = os.path.join(TEMP_DIR, f"word_{unique_id}_download.docx")
 
         # 确保目录存在
         os.makedirs(TEMP_DIR, exist_ok=True)
