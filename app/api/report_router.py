@@ -333,7 +333,7 @@ async def extract_word_text(
         # 确保目录存在
         os.makedirs(TEMP_DIR, exist_ok=True)
 
-        # 在线程池中同步写入文件
+        # 在线程池中同步写入文件（阻塞直到完成）
         def write_file(path, content):
             # 同步写入并显式关闭
             f = open(path, "wb")
@@ -343,10 +343,20 @@ async def extract_word_text(
                 os.fsync(f.fileno())  # 强制写入磁盘
             finally:
                 f.close()  # 显式关闭文件句柄
-            return os.path.getsize(path)
 
-        # 在线程池中同步写入（确保完成）
+            # 验证文件存在且大小正确
+            if not os.path.exists(path):
+                raise IOError(f"文件写入后消失：{path}")
+            size = os.path.getsize(path)
+            if size != len(content):
+                raise IOError(f"文件大小不匹配：期望 {len(content)}, 实际 {size}")
+            return size
+
+        # 在线程池中同步写入（阻塞直到完成）
         file_size = await loop.run_in_executor(None, write_file, temp_path, file_content)
+
+        # 等待 0.5 秒确保文件句柄完全释放（大文件需要更长时间）
+        await asyncio.sleep(0.5)
 
         # 再次验证文件存在
         if not os.path.exists(temp_path):
