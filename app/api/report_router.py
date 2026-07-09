@@ -335,7 +335,7 @@ async def extract_word_text(
 
         logger.info(f"下载完成，大小：{len(file_content)} 字节")
 
-        # 文件写入和检查（保留用于验证）
+        # 文件写入和检查
         def write_file(path, content):
             f = open(path, "wb")
             try:
@@ -364,10 +364,9 @@ async def extract_word_text(
             raise
 
         try:
-            # 从内存读取 Word 文件（避免文件系统锁定问题）
-            logger.info("开始从内存读取 Word 文件...")
-            from io import BytesIO
-            doc = Document(BytesIO(file_content))
+            # 从文件读取 Word
+            logger.info(f"开始读取 Word 文件：{temp_path}")
+            doc = Document(temp_path)
             logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
 
             paragraphs = []
