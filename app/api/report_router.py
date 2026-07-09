@@ -326,15 +326,13 @@ async def extract_word_text(
         # 确保目录存在
         os.makedirs(TEMP_DIR, exist_ok=True)
 
-        # 写入文件并确保 flush
+        # 写入文件
         with open(temp_path, "wb") as f:
             f.write(file_content)
-            f.flush()  # 确保写入磁盘
-            os.fsync(f.fileno())  # 强制同步到磁盘
 
         # 验证文件是否写入成功
         if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
-            raise IOError(f"文件写入失败：{temp_path} (大小：{os.path.getsize(temp_path) if os.path.exists(temp_path) else '不存在'} 字节)")
+            raise IOError(f"文件写入失败：{temp_path}")
 
         logger.info(f"文件下载成功：{temp_path} ({os.path.getsize(temp_path)} 字节)")
 
