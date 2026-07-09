@@ -333,38 +333,39 @@ async def extract_word_text(
         # 如果是 .doc 格式，需要转换为 .docx
         if is_doc:
             logger.info("检测到 .doc 格式，正在转换为 .docx...")
-            import subprocess
-            import uuid
 
             # 保存临时 .doc 文件
             unique_id = uuid.uuid4().hex[:12]
             temp_doc = Path(TEMP_DIR) / f"doc_{unique_id}.doc"
             temp_docx = Path(TEMP_DIR) / f"doc_{unique_id}.docx"
 
-            with open(temp_doc, "wb") as f:
-                f.write(file_content)
-
-            # 用 LibreOffice 转换
-            result = subprocess.run([
-                'libreoffice', '--headless', '--convert-to', 'docx',
-                str(temp_doc), '--outdir', str(TEMP_DIR)
-            ], capture_output=True, text=True, timeout=60)
-
-            if result.returncode != 0:
-                raise ValueError(f"LibreOffice 转换失败：{result.stderr}")
-
-            # 读取转换后的 .docx
-            with open(temp_docx, "rb") as f:
-                file_content = f.read()
-
-            logger.info(f"转换完成，大小：{len(file_content)} 字节")
-
-            # 清理临时文件
             try:
-                temp_doc.unlink()
-                temp_docx.unlink()
-            except:
-                pass
+                with open(temp_doc, "wb") as f:
+                    f.write(file_content)
+
+                # 用 LibreOffice 转换
+                result = subprocess.run([
+                    'libreoffice', '--headless', '--convert-to', 'docx',
+                    str(temp_doc), '--outdir', str(TEMP_DIR)
+                ], capture_output=True, text=True, timeout=60)
+
+                if result.returncode != 0:
+                    raise ValueError(f"LibreOffice 转换失败：{result.stderr}")
+
+                # 读取转换后的 .docx
+                with open(temp_docx, "rb") as f:
+                    file_content = f.read()
+
+                logger.info(f"转换完成，大小：{len(file_content)} 字节")
+            finally:
+                # 确保清理临时文件
+                try:
+                    if temp_doc.exists():
+                        temp_doc.unlink()
+                    if temp_docx.exists():
+                        temp_docx.unlink()
+                except:
+                    pass
 
         # 从内存读取 .docx 文件
         from io import BytesIO
