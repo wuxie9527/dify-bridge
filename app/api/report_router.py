@@ -331,12 +331,15 @@ async def extract_word_text(
 
         try:
             # 提取文本和表格
+            logger.info(f"开始读取 Word 文件：{temp_path}")
             doc = Document(temp_path)
+            logger.info(f"Word 文件读取成功，段落数：{len(doc.paragraphs)}，表格数：{len(doc.tables)}")
 
             paragraphs = []
             tables_markdown = []
 
             # 提取段落（跳过表格内的段落，避免重复）
+            logger.info("开始提取段落...")
             in_table = False
             for p in doc.paragraphs:
                 # 检查段落是否在表格内
@@ -347,7 +350,10 @@ async def extract_word_text(
                 if text:
                     paragraphs.append(text)
 
+            logger.info(f"段落提取完成：{len(paragraphs)} 个段落")
+
             # 提取表格（转为 Markdown）
+            logger.info("开始提取表格...")
             for i, table in enumerate(doc.tables):
                 md_rows = []
                 for row_idx, row in enumerate(table.rows):
@@ -367,6 +373,8 @@ async def extract_word_text(
                     "col_count": len(table.columns)
                 })
 
+            logger.info(f"表格提取完成：{len(tables_markdown)} 个表格")
+
             # 构建完整内容（在段落中插入表格标记）
             content_parts = paragraphs.copy()
             for table_info in tables_markdown:
@@ -381,14 +389,17 @@ async def extract_word_text(
                 "table_count": len(tables_markdown),
                 "message": "Word 文本提取完成"
             }
+            logger.info("Word 提取成功")
 
         except Exception as e:
             # 确保清理临时文件
+            logger.error(f"Word 提取失败：{e}", exc_info=True)
             if os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
-                except:
-                    pass
+                    logger.info(f"临时文件已清理：{temp_path}")
+                except Exception as clean_err:
+                    logger.warning(f"清理临时文件失败：{clean_err}")
             raise e
 
         # 清理临时文件（在 return 之前）
