@@ -33,7 +33,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
-def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = None) -> str:
+def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = None, timeout: int = 120) -> str:
     """
     保存文件到临时目录（支持 UploadFile 或 URL 下载）
 
@@ -41,6 +41,7 @@ def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = No
         file: UploadFile 对象（可选）
         suffix: 文件后缀
         file_url: 文件 URL（可选，与 file 二选一）
+        timeout: 下载超时时间（秒），默认 120 秒（大文件可能需要更长时间）
 
     Returns:
         保存后的文件路径
@@ -56,9 +57,9 @@ def save_temp_file(file: UploadFile = None, suffix: str = "", file_url: str = No
         return file_path
 
     elif file_url:
-        # 从 URL 下载
+        # 从 URL 下载（增加超时）
         file_path = os.path.join(TEMP_DIR, f"{timestamp}_download{suffix}")
-        with httpx.Client() as client:
+        with httpx.Client(timeout=timeout) as client:
             resp = client.get(file_url)
             resp.raise_for_status()
             with open(file_path, "wb") as f:
