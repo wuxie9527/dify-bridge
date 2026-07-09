@@ -333,6 +333,8 @@ async def extract_word_text(
         # 确保目录存在
         os.makedirs(TEMP_DIR, exist_ok=True)
 
+        logger.info(f"下载完成，大小：{len(file_content)} 字节")
+
         # 在线程池中同步写入文件（阻塞直到完成）
         def write_file(path, content):
             # 同步写入并显式关闭
@@ -363,6 +365,15 @@ async def extract_word_text(
             raise IOError(f"文件写入后立即消失：{temp_path}")
 
         logger.info(f"文件写入成功：{temp_path} ({file_size} 字节)")
+
+        # 添加检查步骤：验证文件可访问
+        try:
+            with open(temp_path, "rb") as f:
+                check_size = os.path.getsize(temp_path)
+            logger.info(f"文件检查成功：存在且可读（{check_size} 字节）")
+        except Exception as e:
+            logger.error(f"文件检查失败：{e}")
+            raise
 
         try:
             # 提取文本和表格
