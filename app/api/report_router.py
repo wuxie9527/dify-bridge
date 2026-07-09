@@ -322,6 +322,10 @@ async def extract_word_text(
         # 保存到临时文件
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_path = os.path.join(TEMP_DIR, f"{timestamp}_download.docx")
+
+        # 确保目录存在
+        os.makedirs(TEMP_DIR, exist_ok=True)
+
         with open(temp_path, "wb") as f:
             f.write(file_content)
 
