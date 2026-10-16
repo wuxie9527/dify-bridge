@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db.database import init_db
-from app.api import memory_router
+from app.api import memory_router, cache_router
 from app.api.ocr_router import router as ocr_router
 from app.api.report_router import router as report_router
 
@@ -78,12 +78,24 @@ async def lifespan(app: FastAPI):
         os.makedirs(dir_path, exist_ok=True)
     logger.info("Data directories initialized")
 
+    # 初始化向量缓存(TairVector 索引 + Embedding 配置检查)
+    if settings.tair_host:
+        from app.services.cache_service import check_ready
+        await check_ready()
+    else:
+        logger.warning("TAIR_HOST 未配置,向量缓存功能不可用")
+
     logger.info("Application startup complete")
     logger.info("=" * 50)
 
     yield
 
     logger.info("Service shutting down...")
+
+    # 关闭 Tair 连接
+    if settings.tair_host:
+        from app.clients.tair_vector import get_vector_store
+        get_vector_store().close()
 
 
 app = FastAPI(
@@ -104,6 +116,7 @@ app.add_middleware(
 
 # 注册路由
 app.include_router(memory_router, prefix="/api/v1/dify", tags=["长期记忆"])
+app.include_router(cache_router, prefix="/api/v1/dify", tags=["向量缓存"])
 app.include_router(ocr_router, tags=["OCR 识别"])
 app.include_router(report_router, tags=["报告审核"])
 
@@ -121,6 +134,6 @@ async def health_check():
         "status": "ok",
         "service": "dify-bridge",
         "version": settings.app_version,
-        "features": ["长期记忆", "OCR 识别", "Excel 提取", "Excel 批注写回", "Word 批注写回"],
+        "features": ["长期记忆", "向量缓存", "OCR 识别", "Excel 提取", "Excel 批注写回", "Word 批注写回"],
         "log_dir": log_dir
     }

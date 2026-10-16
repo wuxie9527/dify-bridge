@@ -8,6 +8,9 @@ logs/*
 .env
 .env.local
 
+# 本地临时测试脚本（含真实凭据，禁止提交）
+test.py
+
 # Python
 venv/
 .venv/

@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     # Tavily API（备用）
     tavily_api_key: str = ""
 
+    # Tair 云数据库（向量缓存）
+    tair_host: str = ""
+    tair_port: int = 6379
+    tair_password: str = ""
+    tair_vector_index: str = "diagnosis_cache"  # TairVector 索引名
+    tair_socket_timeout: float = 5.0
+
+    # 阿里云百炼 DashScope（用户提问向量化）
+    dashscope_api_key: str = ""
+    embedding_model: str = "text-embedding-v3"
+    embedding_dimension: int = 1024  # 注意：与索引维度一致，修改需重建索引
+
     class Config:
         env_file = ".env"
         case_sensitive = False
